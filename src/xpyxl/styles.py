@@ -39,6 +39,8 @@ __all__ = [
     "nowrap",
     "wrap_shrink",
     "allow_overflow",
+    "row_height",
+    "row_width",
     "bg_red",
     "bg_primary",
     "bg_muted",
@@ -140,6 +142,8 @@ class Style:
     wrap_text: bool | None = None
     shrink_to_fit: bool | None = None
     auto_width: bool | None = None
+    row_height: float | None = None
+    row_width: float | None = None
     number_format: str | None = None
     border: BorderStyleName | None = None
     border_color: str | None = None
@@ -184,6 +188,12 @@ class Style:
             auto_width=other.auto_width
             if other.auto_width is not None
             else self.auto_width,
+            row_height=other.row_height
+            if other.row_height is not None
+            else self.row_height,
+            row_width=other.row_width
+            if other.row_width is not None
+            else self.row_width,
             number_format=other.number_format or self.number_format,
             border=other.border if other.border is not None else self.border,
             border_color=other.border_color
@@ -266,6 +276,18 @@ wrap = _style("wrap", wrap_text=True)
 nowrap = _style("nowrap", wrap_text=False)
 wrap_shrink = _style("wrap_shrink", wrap_text=True, shrink_to_fit=True)
 allow_overflow = _style("allow_overflow", auto_width=False)
+
+
+def row_height(value: float) -> Style:
+    if value <= 0:
+        raise ValueError("Row height must be positive")
+    return Style(name=f"row_height_{value:g}", row_height=value)
+
+
+def row_width(value: float) -> Style:
+    if value <= 0:
+        raise ValueError("Row width must be positive")
+    return Style(name=f"row_width_{value:g}", row_width=value)
 
 border_all = _style(
     "border_all",

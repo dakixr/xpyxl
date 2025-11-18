@@ -94,6 +94,8 @@ from .styles import (
     nowrap,
     wrap_shrink,
     allow_overflow,
+    row_height,
+    row_width,
     nowrap,
     wrap_shrink,
 )
@@ -148,6 +150,8 @@ __all__ = [
     "nowrap",
     "wrap_shrink",
     "allow_overflow",
+    "row_height",
+    "row_width",
     "nowrap",
     "wrap_shrink",
     "border_all",

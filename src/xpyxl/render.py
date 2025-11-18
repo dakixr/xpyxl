@@ -60,6 +60,8 @@ class EffectiveStyle:
     wrap_text: bool
     shrink_to_fit: bool
     auto_width: bool
+    row_height: float | None
+    row_width: float | None
     number_format: str | None
     border: BorderStyleName | None
     border_color: str | None
@@ -105,6 +107,8 @@ def _resolve(styles: Sequence[Style]) -> EffectiveStyle:
     border_color = normalize_hex(merged.border_color) if merged.border_color else None
     shrink_to_fit = merged.shrink_to_fit if merged.shrink_to_fit is not None else False
     auto_width = merged.auto_width if merged.auto_width is not None else True
+    row_height = merged.row_height
+    row_width = merged.row_width
     border_top = merged.border_top if merged.border_top is not None else False
     border_bottom = merged.border_bottom if merged.border_bottom is not None else False
     border_left = merged.border_left if merged.border_left is not None else False
@@ -123,6 +127,8 @@ def _resolve(styles: Sequence[Style]) -> EffectiveStyle:
         wrap_text=merged.wrap_text if merged.wrap_text is not None else False,
         shrink_to_fit=shrink_to_fit,
         auto_width=auto_width,
+        row_height=row_height,
+        row_width=row_width,
         number_format=merged.number_format,
         border=merged.border,
         border_color=border_color,
@@ -162,7 +168,9 @@ def _update_dimensions(
     font_scale = style.font_size / DEFAULT_FONT_SIZE if style.font_size else 1.0
     width_hint = max(len(text), 1.0)
     existing_width = col_widths.get(column_index, 0.0)
-    if not style.auto_width:
+    if style.row_width is not None:
+        width_hint = style.row_width
+    elif not style.auto_width:
         width_hint = existing_width if existing_width else 8.0
     elif style.wrap_text:
         width_hint = existing_width or 8.0
@@ -170,11 +178,14 @@ def _update_dimensions(
     width_hint += 1.0
     col_widths[column_index] = max(existing_width, width_hint)
 
-    base_height = prefer_height if prefer_height is not None else _default_row_height()
-    if style.wrap_text:
-        base_height *= _estimate_wrap_lines(text)
-    base_height *= font_scale
-    base_height += 2.0
+    if style.row_height is not None:
+        base_height = style.row_height
+    else:
+        base_height = prefer_height if prefer_height is not None else _default_row_height()
+        if style.wrap_text:
+            base_height *= _estimate_wrap_lines(text)
+        base_height *= font_scale
+        base_height += 2.0
     row_heights[row_index] = max(row_heights.get(row_index, 0.0), base_height)
 
 
