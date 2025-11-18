@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+import math
 from typing import Any, assert_never
 
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -21,6 +22,7 @@ from .nodes import (
 )
 from .styles import (
     BorderStyleName,
+    DEFAULT_BORDER_STYLE_NAME,
     Style,
     bold,
     combine_styles,
@@ -34,13 +36,13 @@ __all__ = ["render_sheet"]
 DEFAULT_FONT_NAME = "Calibri"
 DEFAULT_FONT_SIZE = 11.0
 DEFAULT_MONO_FONT = "Consolas"
-DEFAULT_TEXT_COLOR = normalize_hex("#111827")
-DEFAULT_BORDER_COLOR = normalize_hex("#D0D5DD")
-DEFAULT_BORDER_STYLE: BorderStyleName = "thin"
+DEFAULT_TEXT_COLOR = normalize_hex("#000000")
+DEFAULT_BORDER_COLOR = normalize_hex("#000000")
+DEFAULT_BORDER_STYLE: BorderStyleName = DEFAULT_BORDER_STYLE_NAME
 DEFAULT_ROW_HEIGHT = 16.0
 DEFAULT_TABLE_HEADER_BG = normalize_hex("#F2F4F7")
-DEFAULT_TABLE_HEADER_TEXT = normalize_hex("#1E293B")
-DEFAULT_TABLE_STRIPE_COLOR = normalize_hex("#F8FAFC")
+DEFAULT_TABLE_HEADER_TEXT = normalize_hex("#000000")
+DEFAULT_TABLE_STRIPE_COLOR = normalize_hex("#000000")
 DEFAULT_TABLE_COMPACT_HEIGHT = 18.0
 
 
@@ -56,9 +58,15 @@ class EffectiveStyle:
     vertical_align: str | None
     indent: int | None
     wrap_text: bool
+    shrink_to_fit: bool
+    auto_width: bool
     number_format: str | None
     border: BorderStyleName | None
     border_color: str | None
+    border_top: bool
+    border_bottom: bool
+    border_left: bool
+    border_right: bool
 
 
 @dataclass(frozen=True)
@@ -95,6 +103,12 @@ def _resolve(styles: Sequence[Style]) -> EffectiveStyle:
     text_color = normalize_hex(merged.text_color or DEFAULT_TEXT_COLOR)
     fill_color = normalize_hex(merged.fill_color) if merged.fill_color else None
     border_color = normalize_hex(merged.border_color) if merged.border_color else None
+    shrink_to_fit = merged.shrink_to_fit if merged.shrink_to_fit is not None else False
+    auto_width = merged.auto_width if merged.auto_width is not None else True
+    border_top = merged.border_top if merged.border_top is not None else False
+    border_bottom = merged.border_bottom if merged.border_bottom is not None else False
+    border_left = merged.border_left if merged.border_left is not None else False
+    border_right = merged.border_right if merged.border_right is not None else False
 
     return EffectiveStyle(
         font_name=font_name,
@@ -107,14 +121,31 @@ def _resolve(styles: Sequence[Style]) -> EffectiveStyle:
         vertical_align=merged.vertical_align,
         indent=merged.indent,
         wrap_text=merged.wrap_text if merged.wrap_text is not None else False,
+        shrink_to_fit=shrink_to_fit,
+        auto_width=auto_width,
         number_format=merged.number_format,
         border=merged.border,
         border_color=border_color,
+        border_top=border_top,
+        border_bottom=border_bottom,
+        border_left=border_left,
+        border_right=border_right,
     )
 
 
 def _default_row_height() -> float:
     return DEFAULT_ROW_HEIGHT
+
+
+def _estimate_wrap_lines(text: str) -> int:
+    WRAP_LINE_LENGTH = 30
+    if not text:
+        return 1
+    lines = 0
+    for raw_line in text.splitlines() or [text]:
+        length = max(len(raw_line), 1)
+        lines += max(1, math.ceil(length / WRAP_LINE_LENGTH))
+    return max(lines, 1)
 
 
 def _update_dimensions(
@@ -128,11 +159,22 @@ def _update_dimensions(
     prefer_height: float | None = None,
 ) -> None:
     text = "" if value is None else str(value)
+    font_scale = style.font_size / DEFAULT_FONT_SIZE if style.font_size else 1.0
     width_hint = max(len(text), 1.0)
     existing_width = col_widths.get(column_index, 0.0)
+    if not style.auto_width:
+        width_hint = existing_width if existing_width else 8.0
+    elif style.wrap_text:
+        width_hint = existing_width or 8.0
+    width_hint *= font_scale
+    width_hint += 1.0
     col_widths[column_index] = max(existing_width, width_hint)
 
     base_height = prefer_height if prefer_height is not None else _default_row_height()
+    if style.wrap_text:
+        base_height *= _estimate_wrap_lines(text)
+    base_height *= font_scale
+    base_height += 2.0
     row_heights[row_index] = max(row_heights.get(row_index, 0.0), base_height)
 
 
@@ -158,19 +200,45 @@ def _apply_style(cell, effective: EffectiveStyle, border_fallback_color: str) ->
         align_kwargs["indent"] = effective.indent
     if effective.wrap_text:
         align_kwargs["wrap_text"] = True
+    if effective.shrink_to_fit:
+        align_kwargs["shrink_to_fit"] = True
     if align_kwargs:
         align_kwargs.setdefault("vertical", "bottom")
         cell.alignment = Alignment(**align_kwargs)
-    elif cell.alignment is None and effective.wrap_text:
-        cell.alignment = Alignment(wrap_text=True)
+    elif cell.alignment is None and (effective.wrap_text or effective.shrink_to_fit):
+        cell.alignment = Alignment(
+            wrap_text=True if effective.wrap_text else None,
+            shrink_to_fit=True if effective.shrink_to_fit else None,
+        )
 
     if effective.number_format:
         cell.number_format = effective.number_format
 
     if effective.border:
         border_color = effective.border_color or border_fallback_color
-        side = Side(style=effective.border, color=to_argb(border_color))
-        cell.border = Border(left=side, right=side, top=side, bottom=side)
+        argb_color = to_argb(border_color)
+
+        def build(enabled: bool) -> Side | None:
+            if not enabled:
+                return None
+            return Side(style=effective.border, color=argb_color)
+
+        explicit = (
+            effective.border_top
+            or effective.border_bottom
+            or effective.border_left
+            or effective.border_right
+        )
+        if explicit:
+            cell.border = Border(
+                left=build(effective.border_left),
+                right=build(effective.border_right),
+                top=build(effective.border_top),
+                bottom=build(effective.border_bottom),
+            )
+        else:
+            side = build(True)
+            cell.border = Border(left=side, right=side, top=side, bottom=side)
 
 
 def _render_row(

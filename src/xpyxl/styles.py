@@ -36,12 +36,39 @@ __all__ = [
     "align_middle",
     "align_bottom",
     "wrap",
+    "nowrap",
+    "wrap_shrink",
+    "allow_overflow",
     "bg_red",
     "bg_primary",
     "bg_muted",
     "bg_success",
     "bg_warning",
     "bg_info",
+    "border_all",
+    "border_top",
+    "border_bottom",
+    "border_left",
+    "border_right",
+    "border_x",
+    "border_y",
+    "border_red",
+    "border_green",
+    "border_blue",
+    "border_orange",
+    "border_purple",
+    "border_black",
+    "border_gray",
+    "border_white",
+    "border_muted",
+    "border_primary",
+    "border_thin",
+    "border_medium",
+    "border_thick",
+    "border_dashed",
+    "border_dotted",
+    "border_double",
+    "border_none",
     "table_bordered",
     "table_banded",
     "table_compact",
@@ -74,6 +101,8 @@ BorderStyleLiteral = Literal[
     "thin",
 ]
 BorderStyleName = BorderStyleLiteral | Literal["none"]
+
+DEFAULT_BORDER_STYLE_NAME: BorderStyleLiteral = "thin"
 
 
 def normalize_hex(value: str) -> str:
@@ -109,9 +138,15 @@ class Style:
     vertical_align: str | None = None
     indent: int | None = None
     wrap_text: bool | None = None
+    shrink_to_fit: bool | None = None
+    auto_width: bool | None = None
     number_format: str | None = None
     border: BorderStyleName | None = None
     border_color: str | None = None
+    border_top: bool | None = None
+    border_bottom: bool | None = None
+    border_left: bool | None = None
+    border_right: bool | None = None
     table_banded: bool | None = None
     table_bordered: bool | None = None
     table_compact: bool | None = None
@@ -143,11 +178,29 @@ class Style:
             wrap_text=other.wrap_text
             if other.wrap_text is not None
             else self.wrap_text,
+            shrink_to_fit=other.shrink_to_fit
+            if other.shrink_to_fit is not None
+            else self.shrink_to_fit,
+            auto_width=other.auto_width
+            if other.auto_width is not None
+            else self.auto_width,
             number_format=other.number_format or self.number_format,
             border=other.border if other.border is not None else self.border,
             border_color=other.border_color
             if other.border_color is not None
             else self.border_color,
+            border_top=other.border_top
+            if other.border_top is not None
+            else self.border_top,
+            border_bottom=other.border_bottom
+            if other.border_bottom is not None
+            else self.border_bottom,
+            border_left=other.border_left
+            if other.border_left is not None
+            else self.border_left,
+            border_right=other.border_right
+            if other.border_right is not None
+            else self.border_right,
             table_banded=other.table_banded
             if other.table_banded is not None
             else self.table_banded,
@@ -210,6 +263,57 @@ align_top = _style("align_top", vertical_align="top")
 align_middle = _style("align_middle", vertical_align="center")
 align_bottom = _style("align_bottom", vertical_align="bottom")
 wrap = _style("wrap", wrap_text=True)
+nowrap = _style("nowrap", wrap_text=False)
+wrap_shrink = _style("wrap_shrink", wrap_text=True, shrink_to_fit=True)
+allow_overflow = _style("allow_overflow", auto_width=False)
+
+border_all = _style(
+    "border_all",
+    border=DEFAULT_BORDER_STYLE_NAME,
+    border_top=True,
+    border_bottom=True,
+    border_left=True,
+    border_right=True,
+)
+border_top = _style("border_top", border=DEFAULT_BORDER_STYLE_NAME, border_top=True)
+border_bottom = _style(
+    "border_bottom", border=DEFAULT_BORDER_STYLE_NAME, border_bottom=True
+)
+border_left = _style("border_left", border=DEFAULT_BORDER_STYLE_NAME, border_left=True)
+border_right = _style(
+    "border_right", border=DEFAULT_BORDER_STYLE_NAME, border_right=True
+)
+border_x = _style(
+    "border_x",
+    border=DEFAULT_BORDER_STYLE_NAME,
+    border_left=True,
+    border_right=True,
+)
+border_y = _style(
+    "border_y",
+    border=DEFAULT_BORDER_STYLE_NAME,
+    border_top=True,
+    border_bottom=True,
+)
+
+border_thin = _style("border_thin", border="thin")
+border_medium = _style("border_medium", border="medium")
+border_thick = _style("border_thick", border="thick")
+border_dashed = _style("border_dashed", border="dashed")
+border_dotted = _style("border_dotted", border="dotted")
+border_double = _style("border_double", border="double")
+border_none = _style("border_none", border="none")
+
+border_primary = _style("border_primary", border_color=normalize_hex("#2563EB"))
+border_muted = _style("border_muted", border_color=normalize_hex("#6B7280"))
+border_red = _style("border_red", border_color=normalize_hex("#DC2626"))
+border_green = _style("border_green", border_color=normalize_hex("#16A34A"))
+border_blue = _style("border_blue", border_color=normalize_hex("#2563EB"))
+border_orange = _style("border_orange", border_color=normalize_hex("#EA580C"))
+border_purple = _style("border_purple", border_color=normalize_hex("#7C3AED"))
+border_black = _style("border_black", border_color=normalize_hex("#111827"))
+border_gray = _style("border_gray", border_color=normalize_hex("#4B5563"))
+border_white = _style("border_white", border_color=normalize_hex("#FFFFFF"))
 
 table_bordered = _style("table_bordered", table_bordered=True)
 table_banded = _style("table_banded", table_banded=True)

@@ -79,9 +79,13 @@ layout = x.vstack(
 - **Typography:** `text_xs/_sm/_base/_lg/_xl/_2xl/_3xl`, `bold`, `italic`, `mono`
 - **Text colors:** `text_red`, `text_green`, `text_blue`, `text_orange`, `text_purple`, `text_black`, `text_gray`
 - **Backgrounds:** `bg_red`, `bg_primary`, `bg_muted`, `bg_success`, `bg_warning`, `bg_info`
-- **Layout & alignment:** `text_left`, `text_center`, `text_right`, `align_top/middle/bottom`, `wrap`
+- **Layout & alignment:** `text_left`, `text_center`, `text_right`, `align_top/middle/bottom`, `wrap`, `nowrap`, `wrap_shrink`, `allow_overflow`
+- Use `allow_overflow` when you want to keep a column narrow and let the text spill into adjacent empty cells.
+- **Borders:** `border_all`, `border_top`, `border_bottom`, `border_left`, `border_right`, `border_x`, `border_y`, `border_red`, `border_green`, `border_blue`, `border_orange`, `border_purple`, `border_black`, `border_gray`, `border_white`, `border_muted`, `border_primary`, `border_thin`, `border_medium`, `border_thick`, `border_dashed`, `border_dotted`, `border_double`, `border_none`
 - **Tables:** `table_bordered`, `table_banded`, `table_compact`
 - **Number/date formats:** `number_comma`, `number_precision`, `percent`, `currency_usd`, `currency_eur`, `date_short`, `datetime_short`, `time_short`
+
+Border utilities can sit on individual cells or be applied at the row/column level for fast outlines.
 
 Mix and match utilities freely—what you see is what you get.
 
