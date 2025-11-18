@@ -186,22 +186,22 @@ def space(rows: int = 1, *, height: float | None = None) -> SpacerNode:
     return SpacerNode(rows=rows, height=height)
 
 
-def vstack(*items: Any, gap: int = 0) -> VerticalStackNode:
+def vstack(*items: Any, gap: int = 0, style: Sequence[Style] | None = None) -> VerticalStackNode:
     if not items:
         raise ValueError("Vertical stack requires at least one item")
     if gap < 0:
         raise ValueError("Vertical stack gap must be >= 0")
     components = tuple(_ensure_component(item) for item in items)
-    return VerticalStackNode(items=components, gap=gap)
+    return VerticalStackNode(items=components, gap=gap, styles=tuple(style or ()))
 
 
-def hstack(*items: Any, gap: int = 0) -> HorizontalStackNode:
+def hstack(*items: Any, gap: int = 0, style: Sequence[Style] | None = None) -> HorizontalStackNode:
     if not items:
         raise ValueError("Horizontal stack requires at least one item")
     if gap < 0:
         raise ValueError("Horizontal stack gap must be >= 0")
     components = tuple(_ensure_component(item) for item in items)
-    return HorizontalStackNode(items=components, gap=gap)
+    return HorizontalStackNode(items=components, gap=gap, styles=tuple(style or ()))
 
 
 def workbook() -> WorkbookBuilder:

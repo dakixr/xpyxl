@@ -82,6 +82,7 @@ class _Placement:
     row: int
     col: int
     item: RenderableItem
+    styles: tuple[Style, ...]
 
 
 def _resolve(styles: Sequence[Style]) -> EffectiveStyle:
@@ -259,10 +260,11 @@ def _render_row(
     start_col: int,
     col_widths: dict[int, float],
     row_heights: dict[int, float],
+    extra_styles: tuple[Style, ...] = (),
 ) -> None:
     row_index = start_row
     for column_offset, cell_node in enumerate(node.cells, start=1):
-        styles = (*node.styles, *cell_node.styles)
+        styles = (*extra_styles, *node.styles, *cell_node.styles)
         effective = _resolve(styles)
         column_index = start_col + column_offset - 1
         target_cell = ws.cell(row=row_index, column=column_index, value=cell_node.value)
@@ -284,10 +286,11 @@ def _render_column(
     start_col: int,
     col_widths: dict[int, float],
     row_heights: dict[int, float],
+    extra_styles: tuple[Style, ...] = (),
 ) -> None:
     row_index = start_row
     for cell_node in node.cells:
-        styles = (*node.styles, *cell_node.styles)
+        styles = (*extra_styles, *node.styles, *cell_node.styles)
         effective = _resolve(styles)
         target_cell = ws.cell(row=row_index, column=start_col, value=cell_node.value)
         _apply_style(target_cell, effective, DEFAULT_BORDER_COLOR)
@@ -309,8 +312,9 @@ def _render_cell(
     column_index: int,
     col_widths: dict[int, float],
     row_heights: dict[int, float],
+    extra_styles: tuple[Style, ...] = (),
 ) -> None:
-    effective = _resolve(node.styles)
+    effective = _resolve((*extra_styles, *node.styles))
     target_cell = ws.cell(row=row_index, column=column_index, value=node.value)
     _apply_style(target_cell, effective, DEFAULT_BORDER_COLOR)
     _update_dimensions(
@@ -330,8 +334,9 @@ def _render_table(
     start_col: int,
     col_widths: dict[int, float],
     row_heights: dict[int, float],
+    extra_styles: tuple[Style, ...] = (),
 ) -> None:
-    table_style = combine_styles(node.styles)
+    table_style = combine_styles((*extra_styles, *node.styles))
     banded = table_style.table_banded if table_style.table_banded is not None else True
     bordered = (
         table_style.table_bordered if table_style.table_bordered is not None else True
@@ -363,7 +368,13 @@ def _render_table(
         prefer_height: float | None = None,
     ) -> None:
         for column_offset, cell_node in enumerate(row_node.cells, start=1):
-            style_chain = (*node.styles, *row_node.styles, *extra, *cell_node.styles)
+            style_chain = (
+                *extra_styles,
+                *node.styles,
+                *row_node.styles,
+                *extra,
+                *cell_node.styles,
+            )
             if table_border_style:
                 style_chain = (*style_chain, table_border_style)
             effective = _resolve(style_chain)
@@ -410,29 +421,50 @@ def _table_size(node: TableNode) -> _Size:
 
 
 def _layout_item(
-    item: SheetComponent, start_row: int, start_col: int
+    item: SheetComponent,
+    start_row: int,
+    start_col: int,
+    inherited_styles: tuple[Style, ...] = (),
 ) -> tuple[list[_Placement], _Size]:
     if isinstance(item, CellNode):
         size = _Size(width=1, height=1)
-        return ([_Placement(row=start_row, col=start_col, item=item)], size)
+        return (
+            [_Placement(row=start_row, col=start_col, item=item, styles=inherited_styles)],
+            size,
+        )
     elif isinstance(item, RowNode):
         size = _Size(width=len(item.cells), height=1)
-        return ([_Placement(row=start_row, col=start_col, item=item)], size)
+        return (
+            [_Placement(row=start_row, col=start_col, item=item, styles=inherited_styles)],
+            size,
+        )
     elif isinstance(item, ColumnNode):
         size = _Size(width=1, height=len(item.cells))
-        return ([_Placement(row=start_row, col=start_col, item=item)], size)
+        return (
+            [_Placement(row=start_row, col=start_col, item=item, styles=inherited_styles)],
+            size,
+        )
     elif isinstance(item, TableNode):
         size = _table_size(item)
-        return ([_Placement(row=start_row, col=start_col, item=item)], size)
+        return (
+            [_Placement(row=start_row, col=start_col, item=item, styles=inherited_styles)],
+            size,
+        )
     elif isinstance(item, SpacerNode):
         size = _Size(width=0, height=item.rows)
-        return ([_Placement(row=start_row, col=start_col, item=item)], size)
+        return (
+            [_Placement(row=start_row, col=start_col, item=item, styles=inherited_styles)],
+            size,
+        )
     elif isinstance(item, VerticalStackNode):
+        combined_styles = inherited_styles + item.styles
         placements: list[_Placement] = []  # pyright: ignore[reportRedeclaration]
         row_cursor = start_row
         max_width = 0
         for idx, child in enumerate(item.items):
-            child_placements, child_size = _layout_item(child, row_cursor, start_col)
+            child_placements, child_size = _layout_item(
+                child, row_cursor, start_col, combined_styles
+            )
             placements.extend(child_placements)
             row_cursor += child_size.height
             if idx < len(item.items) - 1:
@@ -441,11 +473,14 @@ def _layout_item(
         height = row_cursor - start_row
         return placements, _Size(width=max_width, height=height)
     elif isinstance(item, HorizontalStackNode):
+        combined_styles = inherited_styles + item.styles
         placements: list[_Placement] = []
         col_cursor = start_col
         max_height = 0
         for idx, child in enumerate(item.items):
-            child_placements, child_size = _layout_item(child, start_row, col_cursor)
+            child_placements, child_size = _layout_item(
+                child, start_row, col_cursor, combined_styles
+            )
             placements.extend(child_placements)
             col_cursor += child_size.width
             if idx < len(item.items) - 1:
@@ -482,19 +517,43 @@ def render_sheet(ws, node: SheetNode) -> None:
         target = placement.item
         if isinstance(target, CellNode):
             _render_cell(
-                ws, target, placement.row, placement.col, col_widths, row_heights
+                ws,
+                target,
+                placement.row,
+                placement.col,
+                col_widths,
+                row_heights,
+                placement.styles,
             )
         elif isinstance(target, RowNode):
             _render_row(
-                ws, target, placement.row, placement.col, col_widths, row_heights
+                ws,
+                target,
+                placement.row,
+                placement.col,
+                col_widths,
+                row_heights,
+                placement.styles,
             )
         elif isinstance(target, ColumnNode):
             _render_column(
-                ws, target, placement.row, placement.col, col_widths, row_heights
+                ws,
+                target,
+                placement.row,
+                placement.col,
+                col_widths,
+                row_heights,
+                placement.styles,
             )
         elif isinstance(target, TableNode):
             _render_table(
-                ws, target, placement.row, placement.col, col_widths, row_heights
+                ws,
+                target,
+                placement.row,
+                placement.col,
+                col_widths,
+                row_heights,
+                placement.styles,
             )
         elif isinstance(target, SpacerNode):
             height = (

@@ -55,12 +55,14 @@ class SpacerNode:
 class VerticalStackNode:
     items: tuple["SheetComponent", ...]
     gap: int = 0
+    styles: tuple[Style, ...] = ()
 
 
 @dataclass(frozen=True)
 class HorizontalStackNode:
     items: tuple["SheetComponent", ...]
     gap: int = 0
+    styles: tuple[Style, ...] = ()
 
 
 SheetComponent = (

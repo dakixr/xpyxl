@@ -50,6 +50,15 @@ def wrap_variants_gallery() -> x.Node:
     return x.hstack(*cards, gap=2)
 
 
+def wrap_variants_section() -> x.Node:
+    title = x.row(style=[x.text_lg, x.bold])["Cell-level utilities"]
+    return x.vstack(
+        title,
+        wrap_variants_gallery(),
+        style=[x.border_all, x.row_width(28)],
+    )
+
+
 def mix_and_match_section() -> x.Node:
     instructions = x.row(style=[x.text_sm, x.text_gray])["Stack wrapping utilities at the row/column level too."]
 
@@ -77,6 +86,7 @@ def mix_and_match_section() -> x.Node:
     return x.vstack(
         instructions,
         x.hstack(wrap_stack, nowrap_stack, shrink_stack, overflow_stack, gap=2),
+        style=[x.border_all, x.row_width(28)],
     )
 
 
@@ -85,7 +95,7 @@ def build_workbook() -> x.Workbook:
         x.row(style=[x.text_2xl, x.bold])["Wrapping Utilities"],
         x.row(style=[x.text_sm, x.text_gray])["Resize the sample columns in Excel to see differences."],
         x.space(),
-        wrap_variants_gallery(),
+        wrap_variants_section(),
         x.space(),
         mix_and_match_section(),
         x.space(),

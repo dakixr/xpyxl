@@ -91,8 +91,8 @@ Mix and match utilities freely—what you see is what you get.
 
 ## Layout helpers
 
-- `vstack(a, b, c, gap=1)` vertically stacks components with optional blank rows between them.
-- `hstack(a, b, gap=1)` arranges components side by side with configurable column gaps.
+- `vstack(a, b, c, gap=1, style=[x.border_all])` vertically stacks components with optional blank rows and shared styles (great for card-like borders).
+- `hstack(a, b, gap=1, style=[x.border_all])` arranges components side by side with configurable column gaps and shared wrapper styles.
 - `space(rows=1, height=None)` inserts empty rows (optionally with a fixed height).
 
 ## Examples
