@@ -54,13 +54,12 @@ x.cell(style=[x.text_green, x.number_precision])[42100]
 
 ```python
 sales_table = x.table(
-    header=["Region", "Units", "Price"],
     header_style=[x.text_sm, x.text_gray, x.align_middle],
     style=[x.table_bordered, x.table_compact],
 )[
-    ["EMEA", 1200, 19.0],
-    ["APAC", 900, 21.0],
-    ["AMER", 1500, 18.5],
+    {"Region": "EMEA", "Units": 1200, "Price": 19.0},
+    {"Region": "APAC", "Units": 900, "Price": 21.0},
+    {"Region": "AMER", "Units": 1500, "Price": 18.5},
 ]
 
 layout = x.vstack(
@@ -73,6 +72,11 @@ layout = x.vstack(
     ),
 )
 ```
+
+Tables also accept pandas-friendly shapes:
+- **records:** `table()[[{"region": "EMEA", "units": 1200}, ...]]` derives the header from dict keys (missing keys are filled with `None`).
+- **dict of lists:** `table()[{"region": ["EMEA", "APAC"], "units": [1200, 900]}]` zips columns together (lengths must match).
+Headers are inferred from your keys and default to bold text on a muted background; override with `header_style=[...]` when needed.
 
 ## Utility styles (non-exhaustive)
 
@@ -103,6 +107,7 @@ Mix and match utilities freely—what you see is what you get.
 python examples/multi_sheet_sales_demo.py
 ```
   - Output: `multi-sheet-sales-demo-output.xlsx` with sheets `Summary`, `Raw Data`, `Pipeline`, and `Glossary`, demonstrating tables, stacks, spacing, and utility styles.
+  - Run every demo at once: `uv run scripts/run_all_examples.py`
 
 ## Types & ergonomics
 

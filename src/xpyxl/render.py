@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-import math
-from typing import Any, assert_never
+from typing import TypedDict, assert_never
 
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
@@ -21,12 +21,14 @@ from .nodes import (
     VerticalStackNode,
 )
 from .styles import (
-    BorderStyleName,
     DEFAULT_BORDER_STYLE_NAME,
+    BorderStyleName,
     Style,
+    align_middle,
     bold,
     combine_styles,
     normalize_hex,
+    text_center,
     to_argb,
 )
 
@@ -40,9 +42,9 @@ DEFAULT_TEXT_COLOR = normalize_hex("#000000")
 DEFAULT_BORDER_COLOR = normalize_hex("#000000")
 DEFAULT_BORDER_STYLE: BorderStyleName = DEFAULT_BORDER_STYLE_NAME
 DEFAULT_ROW_HEIGHT = 16.0
-DEFAULT_TABLE_HEADER_BG = normalize_hex("#F2F4F7")
-DEFAULT_TABLE_HEADER_TEXT = normalize_hex("#000000")
-DEFAULT_TABLE_STRIPE_COLOR = normalize_hex("#000000")
+DEFAULT_TABLE_HEADER_BG = None
+DEFAULT_TABLE_HEADER_TEXT = None
+DEFAULT_TABLE_STRIPE_COLOR = normalize_hex("#F2F4F7")
 DEFAULT_TABLE_COMPACT_HEIGHT = 18.0
 
 
@@ -144,6 +146,14 @@ def _default_row_height() -> float:
     return DEFAULT_ROW_HEIGHT
 
 
+class _AlignmentKwargs(TypedDict, total=False):
+    horizontal: str
+    vertical: str
+    indent: int
+    wrap_text: bool
+    shrink_to_fit: bool
+
+
 def _estimate_wrap_lines(text: str) -> int:
     WRAP_LINE_LENGTH = 30
     if not text:
@@ -161,7 +171,7 @@ def _update_dimensions(
     row_heights: dict[int, float],
     column_index: int,
     row_index: int,
-    value: Any,
+    value: object,
     style: EffectiveStyle,
     prefer_height: float | None = None,
 ) -> None:
@@ -182,7 +192,9 @@ def _update_dimensions(
     if style.row_height is not None:
         base_height = style.row_height
     else:
-        base_height = prefer_height if prefer_height is not None else _default_row_height()
+        base_height = (
+            prefer_height if prefer_height is not None else _default_row_height()
+        )
         if style.wrap_text:
             base_height *= _estimate_wrap_lines(text)
         base_height *= font_scale
@@ -203,7 +215,7 @@ def _apply_style(cell, effective: EffectiveStyle, border_fallback_color: str) ->
         color = to_argb(effective.fill_color)
         cell.fill = PatternFill(fill_type="solid", start_color=color, end_color=color)
 
-    align_kwargs: dict[str, Any] = {}
+    align_kwargs: _AlignmentKwargs = {}
     if effective.horizontal_align:
         align_kwargs["horizontal"] = effective.horizontal_align
     if effective.vertical_align:
@@ -337,7 +349,7 @@ def _render_table(
     extra_styles: tuple[Style, ...] = (),
 ) -> None:
     table_style = combine_styles((*extra_styles, *node.styles))
-    banded = table_style.table_banded if table_style.table_banded is not None else True
+    banded = table_style.table_banded if table_style.table_banded is not None else False
     bordered = (
         table_style.table_bordered if table_style.table_bordered is not None else True
     )
@@ -366,15 +378,14 @@ def _render_table(
         *,
         extra: Sequence[Style] = (),
         prefer_height: float | None = None,
+        extra_first: bool = False,
     ) -> None:
         for column_offset, cell_node in enumerate(row_node.cells, start=1):
-            style_chain = (
-                *extra_styles,
-                *node.styles,
-                *row_node.styles,
-                *extra,
-                *cell_node.styles,
-            )
+            base_chain = (*extra_styles, *node.styles)
+            if extra_first:
+                style_chain = (*base_chain, *extra, *row_node.styles, *cell_node.styles)
+            else:
+                style_chain = (*base_chain, *row_node.styles, *extra, *cell_node.styles)
             if table_border_style:
                 style_chain = (*style_chain, table_border_style)
             effective = _resolve(style_chain)
@@ -394,10 +405,17 @@ def _render_table(
             )
 
     if node.header:
-        header_extras: list[Style] = [bold]
-        header_extras.append(Style(fill_color=DEFAULT_TABLE_HEADER_BG))
-        header_extras.append(Style(text_color=DEFAULT_TABLE_HEADER_TEXT))
-        render(node.header, extra=header_extras, prefer_height=compact_height)
+        header_extras: list[Style] = [bold, text_center, align_middle]
+        if DEFAULT_TABLE_HEADER_BG:
+            header_extras.append(Style(fill_color=DEFAULT_TABLE_HEADER_BG))
+        if DEFAULT_TABLE_HEADER_TEXT:
+            header_extras.append(Style(text_color=DEFAULT_TABLE_HEADER_TEXT))
+        render(
+            node.header,
+            extra=header_extras,
+            prefer_height=compact_height,
+            extra_first=True,
+        )
         current_row += 1
 
     for idx, row_node in enumerate(node.rows):
@@ -429,31 +447,51 @@ def _layout_item(
     if isinstance(item, CellNode):
         size = _Size(width=1, height=1)
         return (
-            [_Placement(row=start_row, col=start_col, item=item, styles=inherited_styles)],
+            [
+                _Placement(
+                    row=start_row, col=start_col, item=item, styles=inherited_styles
+                )
+            ],
             size,
         )
     elif isinstance(item, RowNode):
         size = _Size(width=len(item.cells), height=1)
         return (
-            [_Placement(row=start_row, col=start_col, item=item, styles=inherited_styles)],
+            [
+                _Placement(
+                    row=start_row, col=start_col, item=item, styles=inherited_styles
+                )
+            ],
             size,
         )
     elif isinstance(item, ColumnNode):
         size = _Size(width=1, height=len(item.cells))
         return (
-            [_Placement(row=start_row, col=start_col, item=item, styles=inherited_styles)],
+            [
+                _Placement(
+                    row=start_row, col=start_col, item=item, styles=inherited_styles
+                )
+            ],
             size,
         )
     elif isinstance(item, TableNode):
         size = _table_size(item)
         return (
-            [_Placement(row=start_row, col=start_col, item=item, styles=inherited_styles)],
+            [
+                _Placement(
+                    row=start_row, col=start_col, item=item, styles=inherited_styles
+                )
+            ],
             size,
         )
     elif isinstance(item, SpacerNode):
         size = _Size(width=0, height=item.rows)
         return (
-            [_Placement(row=start_row, col=start_col, item=item, styles=inherited_styles)],
+            [
+                _Placement(
+                    row=start_row, col=start_col, item=item, styles=inherited_styles
+                )
+            ],
             size,
         )
     elif isinstance(item, VerticalStackNode):

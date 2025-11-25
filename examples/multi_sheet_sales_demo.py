@@ -6,11 +6,13 @@ import xpyxl as x
 def stat_card(title: str, value: str, delta: str, *, positive: bool = True) -> x.Node:
     delta_style = x.text_green if positive else x.text_red
     return x.table(
-        header=[x.cell(style=[x.text_sm, x.text_gray, x.text_left])[title]],
+        header_style=[x.text_sm, x.text_gray, x.text_left],
         style=[x.table_bordered, x.table_compact],
     )[
-        [x.cell(style=[x.text_2xl, x.bold, x.text_black])[value]],
-        [x.cell(style=[x.text_sm, delta_style])[delta]],
+        [
+            {title: x.cell(style=[x.text_2xl, x.bold, x.text_black])[value]},
+            {title: x.cell(style=[x.text_sm, delta_style])[delta]},
+        ]
     ]
 
 
@@ -26,83 +28,78 @@ def summary_section() -> x.Node:
     )
 
     regional_performance = x.table(
-        header=[
-            x.cell(style=[x.text_sm, x.text_gray, x.text_left])["Region"],
-            x.cell(style=[x.text_sm, x.text_gray, x.text_right])["GM"],
-            x.cell(style=[x.text_sm, x.text_gray, x.text_right])["Units"],
-            x.cell(style=[x.text_sm, x.text_gray, x.text_right])["YoY"],
-        ],
+        header_style=[x.text_sm, x.text_gray],
         style=[x.table_bordered, x.table_banded, x.table_compact],
     )[
         [
-            "EMEA",
-            x.cell(style=[x.text_right])["$1.6M"],
-            x.cell(style=[x.text_right])[1200],
-            x.cell(style=[x.text_right])["+18%"],
-        ],
-        [
-            "APAC",
-            x.cell(style=[x.text_right])["$1.1M"],
-            x.cell(style=[x.text_right])[930],
-            x.cell(style=[x.text_right])["+9%"],
-        ],
-        [
-            "AMER",
-            x.cell(style=[x.text_right])["$1.5M"],
-            x.cell(style=[x.text_right])[1480],
-            x.cell(style=[x.text_right])["+6%"],
-        ],
+            {
+                "Region": "EMEA",
+                "GM": x.cell(style=[x.text_right])["$1.6M"],
+                "Units": x.cell(style=[x.text_right])[1200],
+                "YoY": x.cell(style=[x.text_right])["+18%"],
+            },
+            {
+                "Region": "APAC",
+                "GM": x.cell(style=[x.text_right])["$1.1M"],
+                "Units": x.cell(style=[x.text_right])[930],
+                "YoY": x.cell(style=[x.text_right])["+9%"],
+            },
+            {
+                "Region": "AMER",
+                "GM": x.cell(style=[x.text_right])["$1.5M"],
+                "Units": x.cell(style=[x.text_right])[1480],
+                "YoY": x.cell(style=[x.text_right])["+6%"],
+            },
+        ]
     ]
 
     top_opportunities = x.table(
-        header=[
-            x.cell(style=[x.text_sm, x.text_gray])["Opportunity"],
-            x.cell(style=[x.text_sm, x.text_gray])["Stage"],
-            x.cell(style=[x.text_sm, x.text_gray])["Owner"],
-            x.cell(style=[x.text_sm, x.text_gray, x.text_right])["Value"],
-        ],
+        header_style=[x.text_sm, x.text_gray],
         style=[x.table_bordered, x.table_compact],
     )[
         [
-            "Atlas Renewals",
-            "Negotiation",
-            "S. Patel",
-            x.cell(style=[x.text_right])["$420K"],
-        ],
-        [
-            "Aurora Launch",
-            "Proposal",
-            "C. Rivers",
-            x.cell(style=[x.text_right])["$310K"],
-        ],
-        [
-            "Nimbus Edge",
-            "Discovery",
-            "L. Gomez",
-            x.cell(style=[x.text_right])["$185K"],
-        ],
+            {
+                "Opportunity": "Atlas Renewals",
+                "Stage": "Negotiation",
+                "Owner": "S. Patel",
+                "Value": x.cell(style=[x.text_right])["$420K"],
+            },
+            {
+                "Opportunity": "Aurora Launch",
+                "Stage": "Proposal",
+                "Owner": "C. Rivers",
+                "Value": x.cell(style=[x.text_right])["$310K"],
+            },
+            {
+                "Opportunity": "Nimbus Edge",
+                "Stage": "Discovery",
+                "Owner": "L. Gomez",
+                "Value": x.cell(style=[x.text_right])["$185K"],
+            },
+        ]
     ]
 
     key_updates = x.table(
-        header=["Key Updates"],
         header_style=[x.text_sm, x.text_gray],
         style=[x.table_bordered],
     )[
         [
-            x.cell(style=[x.wrap])[
-                "• APAC backlog cleared; normalization expected by Q4."
-            ]
-        ],
-        [
-            x.cell(style=[x.wrap])[
-                "• Marketing launch for Nimbus Edge driving 23% lift in leads."
-            ]
-        ],
-        [
-            x.cell(style=[x.wrap])[
-                "• Supply constraints eased; lead times back under 4 weeks."
-            ]
-        ],
+            {
+                "Key Updates": x.cell(style=[x.wrap])[
+                    "• APAC backlog cleared; normalization expected by Q4."
+                ]
+            },
+            {
+                "Key Updates": x.cell(style=[x.wrap])[
+                    "• Marketing launch for Nimbus Edge driving 23% lift in leads."
+                ]
+            },
+            {
+                "Key Updates": x.cell(style=[x.wrap])[
+                    "• Supply constraints eased; lead times back under 4 weeks."
+                ]
+            },
+        ]
     ]
 
     lower_row = x.hstack(
@@ -125,57 +122,53 @@ def summary_section() -> x.Node:
 
 def raw_data_sheet() -> x.SheetNode:
     data_table = x.table(
-        header=[
-            x.cell(style=[x.text_sm, x.text_gray])["Region"],
-            x.cell(style=[x.text_sm, x.text_gray])["Segment"],
-            x.cell(style=[x.text_sm, x.text_gray])["Owner"],
-            x.cell(style=[x.text_sm, x.text_gray, x.text_right])["Units"],
-            x.cell(style=[x.text_sm, x.text_gray, x.text_right])["GM"],
-        ],
+        header_style=[x.text_sm, x.text_gray],
         style=[x.table_bordered, x.table_compact],
     )[
         [
-            "EMEA",
-            "Enterprise",
-            "S. Patel",
-            x.cell(style=[x.text_right])[620],
-            x.cell(style=[x.text_right])["$820K"],
-        ],
-        [
-            "EMEA",
-            "Mid-Market",
-            "T. Kato",
-            x.cell(style=[x.text_right])[580],
-            x.cell(style=[x.text_right])["$780K"],
-        ],
-        [
-            "APAC",
-            "Enterprise",
-            "L. Gomez",
-            x.cell(style=[x.text_right])[410],
-            x.cell(style=[x.text_right])["$610K"],
-        ],
-        [
-            "APAC",
-            "SMB",
-            "K. Zhao",
-            x.cell(style=[x.text_right])[520],
-            x.cell(style=[x.text_right])["$490K"],
-        ],
-        [
-            "AMER",
-            "Enterprise",
-            "M. Shaw",
-            x.cell(style=[x.text_right])[870],
-            x.cell(style=[x.text_right])["$910K"],
-        ],
-        [
-            "AMER",
-            "SMB",
-            "C. Rivers",
-            x.cell(style=[x.text_right])[610],
-            x.cell(style=[x.text_right])["$590K"],
-        ],
+            {
+                "Region": "EMEA",
+                "Segment": "Enterprise",
+                "Owner": "S. Patel",
+                "Units": x.cell(style=[x.text_right])[620],
+                "GM": x.cell(style=[x.text_right])["$820K"],
+            },
+            {
+                "Region": "EMEA",
+                "Segment": "Mid-Market",
+                "Owner": "T. Kato",
+                "Units": x.cell(style=[x.text_right])[580],
+                "GM": x.cell(style=[x.text_right])["$780K"],
+            },
+            {
+                "Region": "APAC",
+                "Segment": "Enterprise",
+                "Owner": "L. Gomez",
+                "Units": x.cell(style=[x.text_right])[410],
+                "GM": x.cell(style=[x.text_right])["$610K"],
+            },
+            {
+                "Region": "APAC",
+                "Segment": "SMB",
+                "Owner": "K. Zhao",
+                "Units": x.cell(style=[x.text_right])[520],
+                "GM": x.cell(style=[x.text_right])["$490K"],
+            },
+            {
+                "Region": "AMER",
+                "Segment": "Enterprise",
+                "Owner": "M. Shaw",
+                "Units": x.cell(style=[x.text_right])[870],
+                "GM": x.cell(style=[x.text_right])["$910K"],
+            },
+            {
+                "Region": "AMER",
+                "Segment": "SMB",
+                "Owner": "C. Rivers",
+                "Units": x.cell(style=[x.text_right])[610],
+                "GM": x.cell(style=[x.text_right])["$590K"],
+            },
+        ]
     ]
 
     totals = x.row()[
@@ -187,15 +180,16 @@ def raw_data_sheet() -> x.SheetNode:
     ]
 
     notes = x.table(
-        header=["Notes"],
         header_style=[x.text_sm, x.text_gray],
         style=[x.table_bordered],
     )[
         [
-            x.cell(style=[x.wrap])[
-                "Conversion benchmarks calculated using trailing 90 days."
-            ]
-        ],
+            {
+                "Notes": x.cell(style=[x.wrap])[
+                    "Conversion benchmarks calculated using trailing 90 days."
+                ]
+            },
+        ]
     ]
 
     return x.sheet("Raw Data")[
@@ -213,93 +207,87 @@ def raw_data_sheet() -> x.SheetNode:
 
 def pipeline_sheet() -> x.SheetNode:
     funnel = x.table(
-        header=[
-            x.cell(style=[x.text_sm, x.text_gray])["Stage"],
-            x.cell(style=[x.text_sm, x.text_gray, x.text_right])["Deals"],
-            x.cell(style=[x.text_sm, x.text_gray, x.text_right])["Value"],
-        ],
+        header_style=[x.text_sm, x.text_gray],
         style=[x.table_bordered, x.table_compact],
     )[
         [
-            "Discovery",
-            x.cell(style=[x.text_right])[42],
-            x.cell(style=[x.text_right])["$1.9M"],
-        ],
-        [
-            "Qualification",
-            x.cell(style=[x.text_right])[33],
-            x.cell(style=[x.text_right])["$1.4M"],
-        ],
-        [
-            "Proposal",
-            x.cell(style=[x.text_right])[21],
-            x.cell(style=[x.text_right])["$1.1M"],
-        ],
-        [
-            "Negotiation",
-            x.cell(style=[x.text_right])[14],
-            x.cell(style=[x.text_right])["$1.0M"],
-        ],
-        [
-            "Closed Won",
-            x.cell(style=[x.text_right])[18],
-            x.cell(style=[x.text_right])["$1.5M"],
-        ],
+            {
+                "Stage": "Discovery",
+                "Deals": x.cell(style=[x.text_right])[42],
+                "Value": x.cell(style=[x.text_right])["$1.9M"],
+            },
+            {
+                "Stage": "Qualification",
+                "Deals": x.cell(style=[x.text_right])[33],
+                "Value": x.cell(style=[x.text_right])["$1.4M"],
+            },
+            {
+                "Stage": "Proposal",
+                "Deals": x.cell(style=[x.text_right])[21],
+                "Value": x.cell(style=[x.text_right])["$1.1M"],
+            },
+            {
+                "Stage": "Negotiation",
+                "Deals": x.cell(style=[x.text_right])[14],
+                "Value": x.cell(style=[x.text_right])["$1.0M"],
+            },
+            {
+                "Stage": "Closed Won",
+                "Deals": x.cell(style=[x.text_right])[18],
+                "Value": x.cell(style=[x.text_right])["$1.5M"],
+            },
+        ]
     ]
 
     forecast = x.table(
-        header=[
-            x.cell(style=[x.text_sm, x.text_gray])["Scenario"],
-            x.cell(style=[x.text_sm, x.text_gray, x.text_right])["Probability"],
-            x.cell(style=[x.text_sm, x.text_gray, x.text_right])["Forecast"],
-        ],
+        header_style=[x.text_sm, x.text_gray],
         style=[x.table_bordered, x.table_compact],
     )[
         [
-            "Commit",
-            x.cell(style=[x.text_right])["75%"],
-            x.cell(style=[x.text_right])["$3.2M"],
-        ],
-        [
-            "Best",
-            x.cell(style=[x.text_right])["50%"],
-            x.cell(style=[x.text_right])["$4.5M"],
-        ],
-        [
-            "Upside",
-            x.cell(style=[x.text_right])["25%"],
-            x.cell(style=[x.text_right])["$6.1M"],
-        ],
+            {
+                "Scenario": "Commit",
+                "Probability": x.cell(style=[x.text_right])["75%"],
+                "Forecast": x.cell(style=[x.text_right])["$3.2M"],
+            },
+            {
+                "Scenario": "Best",
+                "Probability": x.cell(style=[x.text_right])["50%"],
+                "Forecast": x.cell(style=[x.text_right])["$4.5M"],
+            },
+            {
+                "Scenario": "Upside",
+                "Probability": x.cell(style=[x.text_right])["25%"],
+                "Forecast": x.cell(style=[x.text_right])["$6.1M"],
+            },
+        ]
     ]
 
     team_heatmap = x.table(
-        header=[
-            x.cell(style=[x.text_sm, x.text_gray])["Owner"],
-            x.cell(style=[x.text_sm, x.text_gray, x.text_right])["Active Deals"],
-            x.cell(style=[x.text_sm, x.text_gray, x.text_right])["Win Rate"],
-        ],
+        header_style=[x.text_sm, x.text_gray],
         style=[x.table_bordered, x.table_banded, x.table_compact],
     )[
         [
-            "S. Patel",
-            x.cell(style=[x.text_right])[18],
-            x.cell(style=[x.text_right])["64%"],
-        ],
-        [
-            "C. Rivers",
-            x.cell(style=[x.text_right])[15],
-            x.cell(style=[x.text_right])["58%"],
-        ],
-        [
-            "L. Gomez",
-            x.cell(style=[x.text_right])[12],
-            x.cell(style=[x.text_right])["54%"],
-        ],
-        [
-            "T. Kato",
-            x.cell(style=[x.text_right])[11],
-            x.cell(style=[x.text_right])["49%"],
-        ],
+            {
+                "Owner": "S. Patel",
+                "Active Deals": x.cell(style=[x.text_right])[18],
+                "Win Rate": x.cell(style=[x.text_right])["64%"],
+            },
+            {
+                "Owner": "C. Rivers",
+                "Active Deals": x.cell(style=[x.text_right])[15],
+                "Win Rate": x.cell(style=[x.text_right])["58%"],
+            },
+            {
+                "Owner": "L. Gomez",
+                "Active Deals": x.cell(style=[x.text_right])[12],
+                "Win Rate": x.cell(style=[x.text_right])["54%"],
+            },
+            {
+                "Owner": "T. Kato",
+                "Active Deals": x.cell(style=[x.text_right])[11],
+                "Win Rate": x.cell(style=[x.text_right])["49%"],
+            },
+        ]
     ]
 
     return x.sheet("Pipeline")[
@@ -316,14 +304,31 @@ def pipeline_sheet() -> x.SheetNode:
 
 def glossary_sheet() -> x.SheetNode:
     utility_grid = x.table(
-        header=["Utility", "Description", "Example"],
         header_style=[x.text_sm, x.text_gray],
         style=[x.table_bordered, x.table_compact],
     )[
-        ["text_blue", "Accent headline color", "Q3 Revenue"],
-        ["bg_success", "Positive badge background", "+14% Revenue"],
-        ["wrap", "Wrap long text inside cells", "Supply constraints eased..."],
-        ["number_precision", "Two-decimal numeric format", "42100.00"],
+        [
+            {
+                "Utility": "text_blue",
+                "Description": "Accent headline color",
+                "Example": "Q3 Revenue",
+            },
+            {
+                "Utility": "bg_success",
+                "Description": "Positive badge background",
+                "Example": "+14% Revenue",
+            },
+            {
+                "Utility": "wrap",
+                "Description": "Wrap long text inside cells",
+                "Example": "Supply constraints eased...",
+            },
+            {
+                "Utility": "number_precision",
+                "Description": "Two-decimal numeric format",
+                "Example": "42100.00",
+            },
+        ]
     ]
 
     return x.sheet("Glossary")[
@@ -349,8 +354,9 @@ def build_sample_workbook() -> x.Workbook:
     return workbook
 
 
-def main() -> None:
-    output_path = Path("multi-sheet-sales-demo-output.xlsx")
+def main(output_path: Path | None = None) -> None:
+    if output_path is None:
+        output_path = Path("multi-sheet-sales-demo-output.xlsx")
     workbook = build_sample_workbook()
     workbook.save(output_path)
     print(f"Saved workbook to {output_path.resolve()}")

@@ -6,7 +6,6 @@ from pathlib import Path
 
 import xpyxl as x
 
-
 LONG_TEXT = (
     "This description is intentionally long so you can resize the column and observe "
     "how wrapping and shrink-to-fit behave in Excel."
@@ -38,12 +37,13 @@ def wrap_variants_gallery() -> x.Node:
     for label, styles, note in entries:
         cards.append(
             x.table(
-                header=[label],
                 header_style=[x.text_sm, x.text_gray],
                 style=[x.table_bordered, x.table_compact],
             )[
-                [x.cell(style=styles)[LONG_TEXT]],
-                [x.cell(style=[x.text_sm, x.text_gray])[note]],
+                [
+                    {label: x.cell(style=styles)[LONG_TEXT]},
+                    {label: x.cell(style=[x.text_sm, x.text_gray])[note]},
+                ]
             ]
         )
 
@@ -60,12 +60,16 @@ def wrap_variants_section() -> x.Node:
 
 
 def mix_and_match_section() -> x.Node:
-    instructions = x.row(style=[x.text_sm, x.text_gray])["Stack wrapping utilities at the row/column level too."]
+    instructions = x.row(style=[x.text_sm, x.text_gray])[
+        "Stack wrapping utilities at the row/column level too."
+    ]
 
     wrap_stack = x.col(style=[x.wrap])[
         x.cell(style=[x.bold])["Row wrap"],
         LONG_TEXT,
-        x.cell(style=[x.text_sm, x.text_gray])["Row style enforces wrapping on every cell."],
+        x.cell(style=[x.text_sm, x.text_gray])[
+            "Row style enforces wrapping on every cell."
+        ],
     ]
     nowrap_stack = x.col(style=[x.nowrap])[
         x.cell(style=[x.bold])["Row nowrap"],
@@ -80,7 +84,9 @@ def mix_and_match_section() -> x.Node:
     overflow_stack = x.col(style=[x.allow_overflow])[
         x.cell(style=[x.bold])["Allow overflow"],
         LONG_TEXT,
-        x.cell(style=[x.text_sm, x.text_gray])["Column width stays fixed; Excel shows spillover."],
+        x.cell(style=[x.text_sm, x.text_gray])[
+            "Column width stays fixed; Excel shows spillover."
+        ],
     ]
 
     return x.vstack(
@@ -93,7 +99,9 @@ def mix_and_match_section() -> x.Node:
 def build_workbook() -> x.Workbook:
     sheet = x.sheet("Wrapping")[
         x.row(style=[x.text_2xl, x.bold])["Wrapping Utilities"],
-        x.row(style=[x.text_sm, x.text_gray])["Resize the sample columns in Excel to see differences."],
+        x.row(style=[x.text_sm, x.text_gray])[
+            "Resize the sample columns in Excel to see differences."
+        ],
         x.space(),
         wrap_variants_section(),
         x.space(),
@@ -104,9 +112,10 @@ def build_workbook() -> x.Workbook:
     return x.workbook()[sheet]
 
 
-def main() -> None:
+def main(output_path: Path | None = None) -> None:
     wb = build_workbook()
-    output_path = Path("wrap-styles-demo-output.xlsx")
+    if output_path is None:
+        output_path = Path("wrap-styles-demo-output.xlsx")
     wb.save(output_path)
     print(f"Saved {output_path.resolve()}")
 

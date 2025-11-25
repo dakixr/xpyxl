@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable, Literal
+from typing import Iterable, Literal, TypedDict, Unpack
 
 __all__ = [
     "Style",
@@ -230,7 +230,7 @@ def combine_styles(styles: Iterable[Style], *, base: Style | None = None) -> Sty
     return combined
 
 
-def _style(name: str, **kwargs: Any) -> Style:
+def _style(name: str, **kwargs: Unpack[_StyleKwargs]) -> Style:
     return Style(name=name, **kwargs)
 
 
@@ -349,3 +349,30 @@ currency_eur = _style("currency_eur", number_format="€#,##0.00")
 date_short = _style("date_short", number_format="yyyy-mm-dd")
 datetime_short = _style("datetime_short", number_format="yyyy-mm-dd hh:mm")
 time_short = _style("time_short", number_format="hh:mm")
+class _StyleKwargs(TypedDict, total=False):
+    font_name: str | None
+    font_size: float | None
+    font_size_delta: float | None
+    bold: bool | None
+    italic: bool | None
+    mono: bool | None
+    text_color: str | None
+    fill_color: str | None
+    horizontal_align: str | None
+    vertical_align: str | None
+    indent: int | None
+    wrap_text: bool | None
+    shrink_to_fit: bool | None
+    auto_width: bool | None
+    row_height: float | None
+    row_width: float | None
+    number_format: str | None
+    border: BorderStyleName | None
+    border_color: str | None
+    border_top: bool | None
+    border_bottom: bool | None
+    border_left: bool | None
+    border_right: bool | None
+    table_banded: bool | None
+    table_bordered: bool | None
+    table_compact: bool | None

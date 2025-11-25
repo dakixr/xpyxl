@@ -57,9 +57,10 @@ def build_workbook() -> x.Workbook:
     return x.workbook()[sheet]
 
 
-def main() -> None:
+def main(output_path: Path | None = None) -> None:
     wb = build_workbook()
-    output_path = Path("row-height-demo-output.xlsx")
+    if output_path is None:
+        output_path = Path("row-height-demo-output.xlsx")
     wb.save(output_path)
     print(f"Saved {output_path.resolve()}")
 

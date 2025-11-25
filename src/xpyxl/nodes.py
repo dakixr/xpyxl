@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TypeAlias
 
 from .styles import Style
 
@@ -17,12 +17,15 @@ __all__ = [
     "WorkbookNode",
     "SheetItem",
     "RenderableItem",
+    "CellValue",
 ]
+
+CellValue: TypeAlias = object
 
 
 @dataclass(frozen=True)
 class CellNode:
-    value: Any
+    value: CellValue
     styles: tuple[Style, ...] = ()
 
 

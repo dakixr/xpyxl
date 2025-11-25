@@ -1,17 +1,11 @@
 [project]
 name = "xpyxl"
-version = "0.3.1"
+version = "0.4.0"
 description = "Create styled excel reports with declarative python."
 readme = "README.md"
-authors = [
-    { name = "dakixr", email = "dakixr@gmail.com" }
-]
+authors = [{ name = "dakixr", email = "dakixr@gmail.com" }]
 requires-python = ">=3.12"
-dependencies = [
-    "openpyxl>=3.1.5",
-]
+dependencies = ["openpyxl>=3.1.5"]
 
 [dependency-groups]
-dev = [
-    "pyright>=1.1.406",
-]
+dev = ["pyright>=1.1.406"]
