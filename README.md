@@ -100,15 +100,32 @@ Mix and match utilities freely—what you see is what you get.
 - `space(rows=1, height=None)` inserts empty rows (optionally with a fixed height) in a `vstack` or empty columns when dropped into an `hstack`.
 - `sheet(name, background_color="#F8FAFC")` sets a sheet-wide background fill; the first ~200 rows and 80 columns are painted so the grid feels cohesive.
 
-## Examples
+## Examples & Tests
 
-- **Multi-sheet sales demo**: see `examples/multi_sheet_sales_demo.py`.
-  - Run it to generate a showcase workbook:
+The `tests/` directory contains example modules that demonstrate various features of xpyxl. Each module exports a `build_workbook()` function (or `build_sample_workbook()` for multi-sheet examples) that returns a `SheetNode` or list of `SheetNode` objects.
+
+- **Multi-sheet sales demo**: `tests/multi_sheet_sales_demo.py` - showcases tables, stacks, spacing, and utility styles across multiple sheets.
+- **Border styles demo**: `tests/border_styles_demo.py` - demonstrates border utilities at cell, row, and column levels.
+- **Wrap styles demo**: `tests/wrap_styles_demo.py` - shows text wrapping and overflow utilities.
+- **Row height demo**: `tests/row_height_demo.py` - examples of manual row height and width controls.
+- **Big table demo**: `tests/big_table_demo.py` - performance test with a 1k-row table.
+
+### Running Tests
+
+Run all test modules to generate combined Excel files with both rendering engines:
+
 ```bash
-python examples/multi_sheet_sales_demo.py
+uv run scripts/run_tests.py
 ```
-  - Output: `multi-sheet-sales-demo-output.xlsx` with sheets `Summary`, `Raw Data`, `Pipeline`, and `Glossary`, demonstrating tables, stacks, spacing, and utility styles.
-  - Run every demo at once: `uv run scripts/run_all_examples.py`
+
+This will:
+- Collect sheets from all test modules
+- Combine them into a single workbook
+- Generate two output files in `.testing/`:
+  - `combined-output-openpyxl.xlsx` (rendered with openpyxl engine)
+  - `combined-output-xlsxwriter.xlsx` (rendered with xlsxwriter engine)
+
+Each test module contributes one or more sheets to the combined workbook, allowing you to compare rendering output between engines.
 
 ## Types & ergonomics
 
