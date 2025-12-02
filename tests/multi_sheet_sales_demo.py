@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import xpyxl as x
 
 
@@ -341,26 +339,10 @@ def glossary_sheet() -> x.SheetNode:
     ]
 
 
-def build_sample_workbook() -> x.Workbook:
-    summary_sheet = x.sheet("Summary")[summary_section()]
-
-    workbook = x.workbook()[
-        summary_sheet,
+def build_sample_workbook() -> list[x.SheetNode]:
+    return [
+        x.sheet("Summary")[summary_section()],
         raw_data_sheet(),
         pipeline_sheet(),
         glossary_sheet(),
     ]
-
-    return workbook
-
-
-def main(output_path: Path | None = None) -> None:
-    if output_path is None:
-        output_path = Path("multi-sheet-sales-demo-output.xlsx")
-    workbook = build_sample_workbook()
-    workbook.save(output_path)
-    print(f"Saved workbook to {output_path.resolve()}")
-
-
-if __name__ == "__main__":
-    main()

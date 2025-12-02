@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import xpyxl as x
 
 LONG_TEXT = (
@@ -96,8 +94,8 @@ def mix_and_match_section() -> x.Node:
     )
 
 
-def build_workbook() -> x.Workbook:
-    sheet = x.sheet("Wrapping")[
+def build_workbook() -> x.SheetNode:
+    return x.sheet("Wrapping")[
         x.row(style=[x.text_2xl, x.bold])["Wrapping Utilities"],
         x.row(style=[x.text_sm, x.text_gray])[
             "Resize the sample columns in Excel to see differences."
@@ -109,16 +107,3 @@ def build_workbook() -> x.Workbook:
         x.space(),
         x.row(style=[x.text_sm, x.text_gray])["Generated with xpyxl"],
     ]
-    return x.workbook()[sheet]
-
-
-def main(output_path: Path | None = None) -> None:
-    wb = build_workbook()
-    if output_path is None:
-        output_path = Path("wrap-styles-demo-output.xlsx")
-    wb.save(output_path)
-    print(f"Saved {output_path.resolve()}")
-
-
-if __name__ == "__main__":
-    main()

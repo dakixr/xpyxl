@@ -97,7 +97,8 @@ Mix and match utilities freely—what you see is what you get.
 
 - `vstack(a, b, c, gap=1, style=[x.border_all])` vertically stacks components with optional blank rows and shared styles (great for card-like borders).
 - `hstack(a, b, gap=1, style=[x.border_all])` arranges components side by side with configurable column gaps and shared wrapper styles.
-- `space(rows=1, height=None)` inserts empty rows (optionally with a fixed height).
+- `space(rows=1, height=None)` inserts empty rows (optionally with a fixed height) in a `vstack` or empty columns when dropped into an `hstack`.
+- `sheet(name, background_color="#F8FAFC")` sets a sheet-wide background fill; the first ~200 rows and 80 columns are painted so the grid feels cohesive.
 
 ## Examples
 

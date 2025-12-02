@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from openpyxl import Workbook as _OpenpyxlWorkbook
 
+from .engines import EngineName, get_engine
 from .nodes import WorkbookNode
 from .render import render_sheet
+
+if TYPE_CHECKING:
+    pass
 
 __all__ = ["Workbook"]
 
@@ -16,16 +21,29 @@ class Workbook:
     def __init__(self, node: WorkbookNode) -> None:
         self._node = node
 
-    def save(self, path: str | Path) -> None:
-        workbook = self.to_openpyxl()
-        workbook.save(str(Path(path)))
+    def save(self, path: str | Path, *, engine: EngineName = "openpyxl") -> None:
+        """Save the workbook to a file.
+
+        Args:
+            path: The file path to save to.
+            engine: The rendering engine to use. Options are "openpyxl" (default)
+                or "xlsxwriter".
+        """
+        engine_instance = get_engine(engine, path)
+        for sheet in self._node.sheets:
+            render_sheet(engine_instance, sheet)
+        engine_instance.save()
 
     def to_openpyxl(self) -> _OpenpyxlWorkbook:
-        workbook = _OpenpyxlWorkbook()
-        default_sheet = workbook.active
-        if default_sheet is not None:
-            workbook.remove(default_sheet)
+        """Convert to an openpyxl Workbook object.
+
+        This method is provided for backward compatibility and advanced use cases
+        where direct access to the openpyxl workbook is needed.
+        """
+        from .engines.openpyxl_engine import OpenpyxlEngine
+
+        # Create a temporary path - we won't actually save to it
+        engine = OpenpyxlEngine(Path("/tmp/temp.xlsx"))
         for sheet in self._node.sheets:
-            ws = workbook.create_sheet(title=sheet.name)
-            render_sheet(ws, sheet)
-        return workbook
+            render_sheet(engine, sheet)
+        return engine._workbook

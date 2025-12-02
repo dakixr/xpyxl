@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import xpyxl as x
 
 
-def build_workbook() -> x.Workbook:
-    sheet = x.sheet("Row Sizes")[
+def build_workbook() -> x.SheetNode:
+    return x.sheet("Row Sizes")[
         x.row(style=[x.text_2xl, x.bold, x.row_height(36)])[
             "Manual Row Heights & Widths"
         ],
@@ -39,7 +37,9 @@ def build_workbook() -> x.Workbook:
         x.space(),
         x.row(style=[x.row_width(14)])[
             "Row width (14)",
-            x.cell(style=[x.text_gray])["Each column touched by this row keeps width=14."],
+            x.cell(style=[x.text_gray])[
+                "Each column touched by this row keeps width=14."
+            ],
         ],
         x.row()[
             x.cell(style=[x.row_width(25), x.wrap])[
@@ -50,20 +50,9 @@ def build_workbook() -> x.Workbook:
         ],
         x.row(style=[x.row_width(10), x.wrap])[
             "Narrow width",
-            x.cell(style=[x.text_gray])["Combine with wrap to keep skinny card columns aligned."],
+            x.cell(style=[x.text_gray])[
+                "Combine with wrap to keep skinny card columns aligned."
+            ],
         ],
         x.row(style=[x.text_sm, x.text_gray])["Generated with xpyxl"],
     ]
-    return x.workbook()[sheet]
-
-
-def main(output_path: Path | None = None) -> None:
-    wb = build_workbook()
-    if output_path is None:
-        output_path = Path("row-height-demo-output.xlsx")
-    wb.save(output_path)
-    print(f"Saved {output_path.resolve()}")
-
-
-if __name__ == "__main__":
-    main()

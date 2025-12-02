@@ -18,7 +18,7 @@ from .nodes import (
     VerticalStackNode,
     WorkbookNode,
 )
-from .styles import Style
+from .styles import Style, normalize_hex
 
 __all__ = [
     "cell",
@@ -229,8 +229,11 @@ class TableBuilder(_BuilderBase):
 
 
 class SheetBuilder:
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, *, background_color: str | None = None) -> None:
         self._name = name
+        self._background_color = (
+            normalize_hex(background_color) if background_color else None
+        )
 
     def __getitem__(
         self, items: SheetComponent | Sequence[SheetComponent]
@@ -245,7 +248,9 @@ class SheetBuilder:
                     "Call the builder before nesting."
                 )
                 raise TypeError(msg)
-        return SheetNode(name=self._name, items=tuple(entries))
+        return SheetNode(
+            name=self._name, items=tuple(entries), background_color=self._background_color
+        )
 
 
 class WorkbookBuilder:
@@ -283,8 +288,8 @@ def table(
     return TableBuilder(styles=style, header_style=header_style, columns=column_order)
 
 
-def sheet(name: str) -> SheetBuilder:
-    return SheetBuilder(name)
+def sheet(name: str, *, background_color: str | None = None) -> SheetBuilder:
+    return SheetBuilder(name, background_color=background_color)
 
 
 def space(rows: int = 1, *, height: float | None = None) -> SpacerNode:

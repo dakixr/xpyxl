@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import xpyxl as x
 
 
-def build_workbook() -> x.Workbook:
+def build_workbook() -> x.SheetNode:
     rows = []
     for idx in range(1_000):
         rows.append(
@@ -22,23 +20,9 @@ def build_workbook() -> x.Workbook:
 
     table = x.table()[rows]
 
-    sheet = x.sheet("Big Table")[
+    return x.sheet("Big Table")[
         x.row(style=[x.text_lg, x.bold])["1k-row table"],
         x.row(style=[x.text_sm, x.text_gray])["Useful for sanity/perf checks."],
         x.space(),
         table,
     ]
-
-    return x.workbook()[sheet]
-
-
-def main(output_path: Path | None = None) -> None:
-    wb = build_workbook()
-    if output_path is None:
-        output_path = Path("big-table-demo-output.xlsx")
-    wb.save(output_path)
-    print(f"Saved {output_path.resolve()}")
-
-
-if __name__ == "__main__":
-    main()

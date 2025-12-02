@@ -2,12 +2,9 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
-from typing import TypedDict, assert_never
+from typing import Literal, assert_never
 
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from openpyxl.utils import get_column_letter
-
+from .engines.base import EffectiveStyle, Engine
 from .nodes import (
     CellNode,
     ColumnNode,
@@ -29,7 +26,6 @@ from .styles import (
     combine_styles,
     normalize_hex,
     text_center,
-    to_argb,
 )
 
 __all__ = ["render_sheet"]
@@ -46,45 +42,39 @@ DEFAULT_TABLE_HEADER_BG = None
 DEFAULT_TABLE_HEADER_TEXT = None
 DEFAULT_TABLE_STRIPE_COLOR = normalize_hex("#F2F4F7")
 DEFAULT_TABLE_COMPACT_HEIGHT = 18.0
+DEFAULT_BACKGROUND_MIN_ROWS = 200
+DEFAULT_BACKGROUND_MIN_COLS = 80
 
 
-@dataclass
-class EffectiveStyle:
-    font_name: str
-    font_size: float
-    bold: bool
-    italic: bool
-    text_color: str
-    fill_color: str | None
-    horizontal_align: str | None
-    vertical_align: str | None
-    indent: int | None
-    wrap_text: bool
-    shrink_to_fit: bool
-    auto_width: bool
-    row_height: float | None
-    row_width: float | None
-    number_format: str | None
-    border: BorderStyleName | None
-    border_color: str | None
-    border_top: bool
-    border_bottom: bool
-    border_left: bool
-    border_right: bool
-
-
-@dataclass(frozen=True)
 class _Size:
-    width: int
-    height: int
+    __slots__ = ("width", "height")
+
+    def __init__(self, width: int, height: int) -> None:
+        self.width = width
+        self.height = height
 
 
-@dataclass(frozen=True)
+_Axis = Literal["vertical", "horizontal"]
+
+
 class _Placement:
-    row: int
-    col: int
-    item: RenderableItem
-    styles: tuple[Style, ...]
+    __slots__ = ("row", "col", "item", "styles", "size", "direction")
+
+    def __init__(
+        self,
+        row: int,
+        col: int,
+        item: RenderableItem,
+        styles: tuple[Style, ...],
+        size: _Size,
+        direction: _Axis,
+    ) -> None:
+        self.row = row
+        self.col = col
+        self.item = item
+        self.styles = styles
+        self.size = size
+        self.direction = direction
 
 
 def _resolve(styles: Sequence[Style]) -> EffectiveStyle:
@@ -146,14 +136,6 @@ def _default_row_height() -> float:
     return DEFAULT_ROW_HEIGHT
 
 
-class _AlignmentKwargs(TypedDict, total=False):
-    horizontal: str
-    vertical: str
-    indent: int
-    wrap_text: bool
-    shrink_to_fit: bool
-
-
 def _estimate_wrap_lines(text: str) -> int:
     WRAP_LINE_LENGTH = 30
     if not text:
@@ -202,71 +184,8 @@ def _update_dimensions(
     row_heights[row_index] = max(row_heights.get(row_index, 0.0), base_height)
 
 
-def _apply_style(cell, effective: EffectiveStyle, border_fallback_color: str) -> None:
-    cell.font = Font(
-        name=effective.font_name,
-        size=effective.font_size,
-        bold=effective.bold,
-        italic=effective.italic,
-        color=to_argb(effective.text_color),
-    )
-
-    if effective.fill_color:
-        color = to_argb(effective.fill_color)
-        cell.fill = PatternFill(fill_type="solid", start_color=color, end_color=color)
-
-    align_kwargs: _AlignmentKwargs = {}
-    if effective.horizontal_align:
-        align_kwargs["horizontal"] = effective.horizontal_align
-    if effective.vertical_align:
-        align_kwargs["vertical"] = effective.vertical_align
-    if effective.indent is not None:
-        align_kwargs["indent"] = effective.indent
-    if effective.wrap_text:
-        align_kwargs["wrap_text"] = True
-    if effective.shrink_to_fit:
-        align_kwargs["shrink_to_fit"] = True
-    if align_kwargs:
-        align_kwargs.setdefault("vertical", "bottom")
-        cell.alignment = Alignment(**align_kwargs)
-    elif cell.alignment is None and (effective.wrap_text or effective.shrink_to_fit):
-        cell.alignment = Alignment(
-            wrap_text=True if effective.wrap_text else None,
-            shrink_to_fit=True if effective.shrink_to_fit else None,
-        )
-
-    if effective.number_format:
-        cell.number_format = effective.number_format
-
-    if effective.border:
-        border_color = effective.border_color or border_fallback_color
-        argb_color = to_argb(border_color)
-
-        def build(enabled: bool) -> Side | None:
-            if not enabled:
-                return None
-            return Side(style=effective.border, color=argb_color)
-
-        explicit = (
-            effective.border_top
-            or effective.border_bottom
-            or effective.border_left
-            or effective.border_right
-        )
-        if explicit:
-            cell.border = Border(
-                left=build(effective.border_left),
-                right=build(effective.border_right),
-                top=build(effective.border_top),
-                bottom=build(effective.border_bottom),
-            )
-        else:
-            side = build(True)
-            cell.border = Border(left=side, right=side, top=side, bottom=side)
-
-
 def _render_row(
-    ws,
+    engine: Engine,
     node: RowNode,
     start_row: int,
     start_col: int,
@@ -279,8 +198,9 @@ def _render_row(
         styles = (*extra_styles, *node.styles, *cell_node.styles)
         effective = _resolve(styles)
         column_index = start_col + column_offset - 1
-        target_cell = ws.cell(row=row_index, column=column_index, value=cell_node.value)
-        _apply_style(target_cell, effective, DEFAULT_BORDER_COLOR)
+        engine.write_cell(
+            row_index, column_index, cell_node.value, effective, DEFAULT_BORDER_COLOR
+        )
         _update_dimensions(
             col_widths=col_widths,
             row_heights=row_heights,
@@ -292,7 +212,7 @@ def _render_row(
 
 
 def _render_column(
-    ws,
+    engine: Engine,
     node: ColumnNode,
     start_row: int,
     start_col: int,
@@ -304,8 +224,9 @@ def _render_column(
     for cell_node in node.cells:
         styles = (*extra_styles, *node.styles, *cell_node.styles)
         effective = _resolve(styles)
-        target_cell = ws.cell(row=row_index, column=start_col, value=cell_node.value)
-        _apply_style(target_cell, effective, DEFAULT_BORDER_COLOR)
+        engine.write_cell(
+            row_index, start_col, cell_node.value, effective, DEFAULT_BORDER_COLOR
+        )
         _update_dimensions(
             col_widths=col_widths,
             row_heights=row_heights,
@@ -318,7 +239,7 @@ def _render_column(
 
 
 def _render_cell(
-    ws,
+    engine: Engine,
     node: CellNode,
     row_index: int,
     column_index: int,
@@ -327,8 +248,9 @@ def _render_cell(
     extra_styles: tuple[Style, ...] = (),
 ) -> None:
     effective = _resolve((*extra_styles, *node.styles))
-    target_cell = ws.cell(row=row_index, column=column_index, value=node.value)
-    _apply_style(target_cell, effective, DEFAULT_BORDER_COLOR)
+    engine.write_cell(
+        row_index, column_index, node.value, effective, DEFAULT_BORDER_COLOR
+    )
     _update_dimensions(
         col_widths=col_widths,
         row_heights=row_heights,
@@ -340,7 +262,7 @@ def _render_cell(
 
 
 def _render_table(
-    ws,
+    engine: Engine,
     node: TableNode,
     start_row: int,
     start_col: int,
@@ -390,10 +312,9 @@ def _render_table(
                 style_chain = (*style_chain, table_border_style)
             effective = _resolve(style_chain)
             column_index = start_col + column_offset - 1
-            target_cell = ws.cell(
-                row=current_row, column=column_index, value=cell_node.value
+            engine.write_cell(
+                current_row, column_index, cell_node.value, effective, border_color
             )
-            _apply_style(target_cell, effective, border_color)
             _update_dimensions(
                 col_widths=col_widths,
                 row_heights=row_heights,
@@ -443,13 +364,19 @@ def _layout_item(
     start_row: int,
     start_col: int,
     inherited_styles: tuple[Style, ...] = (),
+    direction: _Axis = "vertical",
 ) -> tuple[list[_Placement], _Size]:
     if isinstance(item, CellNode):
         size = _Size(width=1, height=1)
         return (
             [
                 _Placement(
-                    row=start_row, col=start_col, item=item, styles=inherited_styles
+                    row=start_row,
+                    col=start_col,
+                    item=item,
+                    styles=inherited_styles,
+                    size=size,
+                    direction=direction,
                 )
             ],
             size,
@@ -459,7 +386,12 @@ def _layout_item(
         return (
             [
                 _Placement(
-                    row=start_row, col=start_col, item=item, styles=inherited_styles
+                    row=start_row,
+                    col=start_col,
+                    item=item,
+                    styles=inherited_styles,
+                    size=size,
+                    direction=direction,
                 )
             ],
             size,
@@ -469,7 +401,12 @@ def _layout_item(
         return (
             [
                 _Placement(
-                    row=start_row, col=start_col, item=item, styles=inherited_styles
+                    row=start_row,
+                    col=start_col,
+                    item=item,
+                    styles=inherited_styles,
+                    size=size,
+                    direction=direction,
                 )
             ],
             size,
@@ -479,17 +416,30 @@ def _layout_item(
         return (
             [
                 _Placement(
-                    row=start_row, col=start_col, item=item, styles=inherited_styles
+                    row=start_row,
+                    col=start_col,
+                    item=item,
+                    styles=inherited_styles,
+                    size=size,
+                    direction=direction,
                 )
             ],
             size,
         )
     elif isinstance(item, SpacerNode):
-        size = _Size(width=0, height=item.rows)
+        if direction == "horizontal":
+            size = _Size(width=item.rows, height=1)
+        else:
+            size = _Size(width=1, height=item.rows)
         return (
             [
                 _Placement(
-                    row=start_row, col=start_col, item=item, styles=inherited_styles
+                    row=start_row,
+                    col=start_col,
+                    item=item,
+                    styles=inherited_styles,
+                    size=size,
+                    direction=direction,
                 )
             ],
             size,
@@ -501,7 +451,7 @@ def _layout_item(
         max_width = 0
         for idx, child in enumerate(item.items):
             child_placements, child_size = _layout_item(
-                child, row_cursor, start_col, combined_styles
+                child, row_cursor, start_col, combined_styles, direction="vertical"
             )
             placements.extend(child_placements)
             row_cursor += child_size.height
@@ -517,7 +467,7 @@ def _layout_item(
         max_height = 0
         for idx, child in enumerate(item.items):
             child_placements, child_size = _layout_item(
-                child, start_row, col_cursor, combined_styles
+                child, start_row, col_cursor, combined_styles, direction="horizontal"
             )
             placements.extend(child_placements)
             col_cursor += child_size.width
@@ -531,31 +481,51 @@ def _layout_item(
 
 
 def _apply_dimensions(
-    ws, col_widths: Mapping[int, float], row_heights: Mapping[int, float]
+    engine: Engine, col_widths: Mapping[int, float], row_heights: Mapping[int, float]
 ) -> None:
     for column_index, width in col_widths.items():
-        letter = get_column_letter(column_index)
-        ws.column_dimensions[letter].width = max(width, 8.0)
+        engine.set_column_width(column_index, width)
     for row_index, height in row_heights.items():
-        ws.row_dimensions[row_index].height = height
+        engine.set_row_height(row_index, height)
 
 
-def render_sheet(ws, node: SheetNode) -> None:
+def render_sheet(engine: Engine, node: SheetNode) -> None:
+    """Render a sheet node using the given engine.
+
+    Args:
+        engine: The rendering engine to use
+        node: The sheet node to render
+    """
+    engine.create_sheet(node.name)
+
     col_widths: dict[int, float] = {}
     row_heights: dict[int, float] = {}
     placements: list[_Placement] = []
     row_cursor = 1
+    max_col = 0
 
     for item in node.items:
-        item_placements, size = _layout_item(item, row_cursor, 1)
+        item_placements, size = _layout_item(item, row_cursor, 1, direction="vertical")
         placements.extend(item_placements)
         row_cursor += size.height
+        max_col = max(max_col, size.width)
+
+    max_row = 0
+    for placement in placements:
+        max_row = max(max_row, placement.row + placement.size.height - 1)
+        max_col = max(max_col, placement.col + placement.size.width - 1)
+
+    if node.background_color:
+        normalized = normalize_hex(node.background_color)
+        target_max_row = max(max_row, DEFAULT_BACKGROUND_MIN_ROWS)
+        target_max_col = max(max_col, DEFAULT_BACKGROUND_MIN_COLS)
+        engine.fill_background(normalized, target_max_row, target_max_col)
 
     for placement in placements:
         target = placement.item
         if isinstance(target, CellNode):
             _render_cell(
-                ws,
+                engine,
                 target,
                 placement.row,
                 placement.col,
@@ -565,7 +535,7 @@ def render_sheet(ws, node: SheetNode) -> None:
             )
         elif isinstance(target, RowNode):
             _render_row(
-                ws,
+                engine,
                 target,
                 placement.row,
                 placement.col,
@@ -575,7 +545,7 @@ def render_sheet(ws, node: SheetNode) -> None:
             )
         elif isinstance(target, ColumnNode):
             _render_column(
-                ws,
+                engine,
                 target,
                 placement.row,
                 placement.col,
@@ -585,7 +555,7 @@ def render_sheet(ws, node: SheetNode) -> None:
             )
         elif isinstance(target, TableNode):
             _render_table(
-                ws,
+                engine,
                 target,
                 placement.row,
                 placement.col,
@@ -594,6 +564,8 @@ def render_sheet(ws, node: SheetNode) -> None:
                 placement.styles,
             )
         elif isinstance(target, SpacerNode):
+            if placement.direction == "horizontal":
+                continue
             height = (
                 target.height if target.height is not None else _default_row_height()
             )
@@ -603,4 +575,4 @@ def render_sheet(ws, node: SheetNode) -> None:
         else:
             assert_never(target)
 
-    _apply_dimensions(ws, col_widths, row_heights)
+    _apply_dimensions(engine, col_widths, row_heights)

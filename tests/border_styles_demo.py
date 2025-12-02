@@ -1,7 +1,5 @@
 """Showcase workbook for the border utility classes."""
 
-from pathlib import Path
-
 import xpyxl as x
 
 
@@ -67,26 +65,28 @@ def column_border_section() -> x.Node:
             "left & right",
             "outlined",
         ],
+        x.space(rows=2),
         x.col(style=[x.border_y, x.border_red])[
             x.cell(style=[x.bold])["x.border_y"],
             "adds",
             "top & bottom",
             "per cell",
         ],
+        x.space(rows=2),
         x.col(style=[x.border_all, x.border_muted, x.border_thin])[
             x.cell(style=[x.bold])["x.border_all"],
             "acts like",
             "inline cards",
             "for stacks",
         ],
-        gap=2,
+        gap=0,
     )
 
     return x.vstack(header, details, columns)
 
 
-def build_workbook() -> x.Workbook:
-    border_sheet = x.sheet("Borders")[
+def build_workbook() -> x.SheetNode:
+    return x.sheet("Borders", background_color="#F8FAFC")[
         x.row(style=[x.text_2xl, x.bold])["Border Styles Demo"],
         x.row(style=[x.text_sm, x.text_gray])[
             "Cell, row, and column outlines using utility classes."
@@ -100,16 +100,3 @@ def build_workbook() -> x.Workbook:
         x.space(),
         x.row(style=[x.text_sm, x.text_gray])["Generated with xpyxl"],
     ]
-    return x.workbook()[border_sheet]
-
-
-def main(output_path: Path | None = None) -> None:
-    workbook = build_workbook()
-    if output_path is None:
-        output_path = Path("border-styles-demo-output.xlsx")
-    workbook.save(output_path)
-    print(f"Saved {output_path.resolve()}")
-
-
-if __name__ == "__main__":
-    main()

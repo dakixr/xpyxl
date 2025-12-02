@@ -89,6 +89,7 @@ SheetItem = SheetComponent
 class SheetNode:
     name: str
     items: tuple[SheetItem, ...]
+    background_color: str | None = None
 
 
 @dataclass(frozen=True)
