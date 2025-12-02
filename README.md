@@ -35,6 +35,85 @@ report = (
 report.save("report.xlsx")
 ```
 
+## Rendering Engines
+
+xpyxl supports multiple rendering engines, allowing you to choose the best one for your needs:
+
+- **openpyxl** (default): Full-featured engine with comprehensive Excel support. Best for complex workbooks with advanced formatting.
+- **xlsxwriter**: Fast, memory-efficient engine. Ideal for large datasets and performance-critical applications.
+
+### Using Different Engines
+
+Specify the engine when saving:
+
+```python
+import xpyxl as x
+
+workbook = x.workbook()[
+    x.sheet("Data")[
+        x.row(style=[x.bold])["Name", "Value"],
+        x.row()["Item A", 100],
+        x.row()["Item B", 200],
+    ]
+]
+
+# Use openpyxl (default)
+workbook.save("output-openpyxl.xlsx", engine="openpyxl")
+
+# Use xlsxwriter
+workbook.save("output-xlsxwriter.xlsx", engine="xlsxwriter")
+```
+
+Both engines produce equivalent Excel files, but may have subtle differences in:
+- File size and memory usage
+- Rendering performance
+- Support for advanced Excel features
+
+Choose **openpyxl** for maximum compatibility and feature support, or **xlsxwriter** when performance and memory efficiency are priorities.
+
+### Performance Benchmarks
+
+Benchmark results comparing the two rendering engines across different scenarios (averaged over 3 runs):
+
+#### Big Tables
+
+| Size    | Engine      | Time (s) | Memory (MB) |
+|---------|-------------|----------|-------------|
+| 100     | openpyxl    | 0.1140   | 0.67        |
+| 100     | xlsxwriter  | 0.0295   | 0.49        |
+| 1,000   | openpyxl    | 1.1095   | 3.07        |
+| 1,000   | xlsxwriter  | 0.2442   | 2.04        |
+| 10,000  | openpyxl    | 13.1806  | 31.24       |
+| 10,000  | xlsxwriter  | 4.1040   | 17.81       |
+| 50,000  | openpyxl    | 65.8414  | 156.31      |
+| 50,000  | xlsxwriter  | 20.5352  | 94.43       |
+
+**Summary**: xlsxwriter is **3.2-4.5x faster** and uses **1.4-1.8x less memory** for large tables.
+
+#### Simple Layouts
+
+| Engine      | Time (s) | Memory (MB) |
+|-------------|----------|-------------|
+| openpyxl    | 0.0085   | 0.38        |
+| xlsxwriter  | 0.0058   | 0.34        |
+
+**Summary**: xlsxwriter is **1.5x faster** with similar memory usage.
+
+#### Complex Layouts
+
+| Engine      | Time (s) | Memory (MB) |
+|-------------|----------|-------------|
+| openpyxl    | 0.1654   | 0.69        |
+| xlsxwriter  | 0.0451   | 0.52        |
+
+**Summary**: xlsxwriter is **3.7x faster** and uses **1.3x less memory** for multi-sheet workbooks with styling.
+
+Run benchmarks yourself:
+
+```bash
+uv run scripts/benchmark.py
+```
+
 ## Primitives
 
 ```python
