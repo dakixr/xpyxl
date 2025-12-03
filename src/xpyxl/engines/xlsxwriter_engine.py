@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import xlsxwriter
 
 from ..styles import normalize_hex
-from .base import EffectiveStyle, Engine
+from .base import EffectiveStyle, Engine, SaveTarget
 
 if TYPE_CHECKING:
     from xlsxwriter.format import Format
@@ -40,12 +41,14 @@ BORDER_STYLE_MAP: dict[str, int] = {
 class XlsxWriterEngine(Engine):
     """Rendering engine using xlsxwriter."""
 
-    def __init__(self, path: str | Path) -> None:
-        super().__init__(path)
-        self._workbook = xlsxwriter.Workbook(str(self._path))
+    def __init__(self) -> None:
+        super().__init__()
+        self._buffer = BytesIO()
+        self._workbook = xlsxwriter.Workbook(self._buffer, {"in_memory": True})
         self._current_sheet: Worksheet | None = None
         # Cache format objects to avoid duplicates
         self._format_cache: dict[tuple[Any, ...], Format] = {}
+        self._closed = False
 
     def create_sheet(self, name: str) -> None:
         self._current_sheet = self._workbook.add_worksheet(name)
@@ -216,5 +219,18 @@ class XlsxWriterEngine(Engine):
             for col_idx in range(max_col):
                 self._current_sheet.write_blank(row_idx, col_idx, None, bg_fmt)
 
-    def save(self) -> None:
-        self._workbook.close()
+    def save(self, target: SaveTarget | None = None) -> bytes | None:
+        if not self._closed:
+            self._workbook.close()
+            self._closed = True
+
+        data = self._buffer.getvalue()
+        if target is None:
+            return data
+
+        if isinstance(target, (str, Path)):
+            Path(target).write_bytes(data)
+        else:
+            target.write(data)
+            target.flush()
+        return None

@@ -64,6 +64,21 @@ workbook.save("output-openpyxl.xlsx", engine="openpyxl")
 workbook.save("output-xlsxwriter.xlsx", engine="xlsxwriter")
 ```
 
+### Saving without touching disk
+
+`Workbook.save` accepts a filesystem path, any binary buffer (like `io.BytesIO()`), or no target at all to get the raw bytes back:
+
+```python
+import io
+from pathlib import Path
+
+buffer = io.BytesIO()
+workbook.save(buffer, engine="xlsxwriter")  # writes into memory
+
+raw_bytes = workbook.save(engine="openpyxl")  # returns bytes when no target is provided
+Path("report.xlsx").write_bytes(raw_bytes)
+```
+
 Both engines produce equivalent Excel files, but may have subtle differences in:
 - File size and memory usage
 - Rendering performance

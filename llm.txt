@@ -1,5 +1,4 @@
 Using xpyxl with xlsxwriter (external agents)
-- Install: dependency declared as `xlsxwriter>=3.1.0`. Import `import xpyxl as x`.
 - Build: compose nodes (no coordinates) then save with the engine you want: `x.workbook()[x.sheet("Demo")[...]].save("out.xlsx", engine="xlsxwriter")`.
 - Primitives: `x.cell[...]`, `x.row[...]`, `x.col[...]`, `x.table()[...]`, `x.vstack(..., gap=0, style=[...])`, `x.hstack(..., gap=0, style=[...])`, `x.space(rows=1, height=None)`, `x.sheet(name, background_color=None)`, `x.workbook()[...]`.
 - Table inputs: sequence of sequences, sequence of dicts (header from keys), or dict-of-lists (columns zipped). `header_style=[...]`, `style=[...]`, `column_order=[...]`.
@@ -10,10 +9,26 @@ Precomputed styles (combine in `style=[...]`)
 - Typography: `text_xs, text_sm, text_base, text_lg, text_xl, text_2xl, text_3xl, bold, italic, mono`.
 - Text colors: `text_red, text_green, text_blue, text_orange, text_purple, text_black, text_gray, text_muted, text_primary, text_white`.
 - Backgrounds: `bg_red, bg_primary, bg_muted, bg_success, bg_warning, bg_info`.
-- Alignment & layout: `text_left, text_center, text_right, align_top, align_middle, align_bottom, wrap, nowrap, wrap_shrink, allow_overflow, row_height(n), row_width(n)`.
-- Borders: `border_all, border_top, border_bottom, border_left, border_right, border_x, border_y, border_thin, border_medium, border_thick, border_dashed, border_dotted, border_double, border_none` plus color helpers `border_red/green/blue/orange/purple/black/gray/white/muted/primary`.
-- Tables: `table_bordered`, `table_banded`, `table_compact`.
-- Number/date formats: `number_comma`, `number_precision`, `percent`, `currency_usd`, `currency_eur`, `date_short`, `datetime_short`, `time_short`.
+- Alignment: `text_left, text_center, text_right, align_top, align_middle, align_bottom`.
+- Text wrapping: `wrap, nowrap, wrap_shrink, allow_overflow`.
+- Row sizing: `row_height(n), row_width(n)` (functions that take a float value).
+- Borders (sides): `border_all, border_top, border_bottom, border_left, border_right, border_x, border_y`.
+- Borders (styles): `border_thin, border_medium, border_thick, border_dashed, border_dotted, border_double, border_none`.
+- Borders (colors): `border_red, border_green, border_blue, border_orange, border_purple, border_black, border_gray, border_white, border_muted, border_primary`.
+- Tables: `table_bordered, table_banded, table_compact`.
+- Number/date formats: `number_comma, number_precision, percent, currency_usd, currency_eur, date_short, datetime_short, time_short`.
+
+Custom styles with `x.Style()`
+- If precomputed styles don't meet your needs, use `x.Style()` with any combination of these options:
+  - Font: `font_name="Arial"`, `font_size=12.0`, `font_size_delta=1.0`, `bold=True/False`, `italic=True/False`, `mono=True/False`.
+  - Colors: `text_color="#FF0000"` (hex), `fill_color="#F0F0F0"` (hex).
+  - Alignment: `horizontal_align="left"/"center"/"right"`, `vertical_align="top"/"center"/"bottom"`, `indent=2` (integer).
+  - Text wrapping: `wrap_text=True/False`, `shrink_to_fit=True/False`, `auto_width=True/False`.
+  - Row sizing: `row_height=20.0`, `row_width=100.0`.
+  - Number format: `number_format="#,##0.00"` (Excel format string).
+  - Borders: `border="thin"/"medium"/"thick"/"dashed"/"dotted"/"double"/"none"` (or "dashDot", "dashDotDot", "hair", "mediumDashDot", "mediumDashDotDot", "mediumDashed", "slantDashDot"), `border_color="#000000"`, `border_top=True/False`, `border_bottom=True/False`, `border_left=True/False`, `border_right=True/False`.
+  - Tables: `table_bordered=True/False`, `table_banded=True/False`, `table_compact=True/False`.
+- Example: `x.Style(font_size=14.0, text_color="#FF5733", fill_color="#FFF5E6", border="medium", border_top=True, border_bottom=True)`.
 
 Common patterns
 - Simple sheet: `x.sheet("Summary")[x.row(style=[x.text_2xl, x.bold])["Title"], x.row()["A", 1]]`.

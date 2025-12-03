@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -10,7 +11,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from ..styles import to_argb
-from .base import EffectiveStyle, Engine
+from .base import EffectiveStyle, Engine, SaveTarget
 
 if TYPE_CHECKING:
     from openpyxl.worksheet.worksheet import Worksheet
@@ -21,8 +22,8 @@ __all__ = ["OpenpyxlEngine"]
 class OpenpyxlEngine(Engine):
     """Rendering engine using openpyxl."""
 
-    def __init__(self, path: str | Path) -> None:
-        super().__init__(path)
+    def __init__(self) -> None:
+        super().__init__()
         self._workbook = Workbook()
         # Remove default sheet created by openpyxl
         default_sheet = self._workbook.active
@@ -232,5 +233,14 @@ class OpenpyxlEngine(Engine):
             for cell in row:
                 cell.fill = sheet_fill
 
-    def save(self) -> None:
-        self._workbook.save(str(self._path))
+    def save(self, target: SaveTarget | None = None) -> bytes | None:
+        if target is None:
+            buffer = BytesIO()
+            self._workbook.save(buffer)
+            return buffer.getvalue()
+
+        if isinstance(target, (str, Path)):
+            self._workbook.save(str(target))
+        else:
+            self._workbook.save(target)
+        return None

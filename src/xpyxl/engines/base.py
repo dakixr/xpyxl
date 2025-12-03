@@ -5,12 +5,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, BinaryIO
 
 if TYPE_CHECKING:
     from ..styles import BorderStyleName
 
-__all__ = ["Engine", "EffectiveStyle"]
+__all__ = ["Engine", "EffectiveStyle", "SaveTarget"]
 
 
 @dataclass
@@ -40,6 +40,9 @@ class EffectiveStyle:
     border_right: bool
 
 
+SaveTarget = str | Path | BinaryIO
+
+
 class Engine(ABC):
     """Abstract base class for Excel rendering engines.
 
@@ -53,8 +56,8 @@ class Engine(ABC):
       convert internally.
     """
 
-    def __init__(self, path: str | Path) -> None:
-        self._path = Path(path)
+    def __init__(self) -> None:
+        """Initialize engine state without binding to an output target."""
 
     @abstractmethod
     def create_sheet(self, name: str) -> None:
@@ -118,7 +121,13 @@ class Engine(ABC):
         ...
 
     @abstractmethod
-    def save(self) -> None:
-        """Save the workbook to the file path."""
-        ...
+    def save(self, target: SaveTarget | None = None) -> bytes | None:
+        """Finalize and persist the workbook.
 
+        Args:
+            target: Destination to write the workbook to. If None, the engine
+                should return the workbook as bytes. When provided, the engine
+                writes to the given path or binary file-like object and should
+                return None.
+        """
+        ...

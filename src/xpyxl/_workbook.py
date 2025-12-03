@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, BinaryIO
 
 from openpyxl import Workbook as _OpenpyxlWorkbook
 
@@ -21,18 +21,24 @@ class Workbook:
     def __init__(self, node: WorkbookNode) -> None:
         self._node = node
 
-    def save(self, path: str | Path, *, engine: EngineName = "openpyxl") -> None:
-        """Save the workbook to a file.
+    def save(
+        self,
+        target: str | Path | BinaryIO | None = None,
+        *,
+        engine: EngineName = "openpyxl",
+    ) -> bytes | None:
+        """Save the workbook to a file or binary stream.
 
         Args:
-            path: The file path to save to.
+            target: File path or binary buffer to write to. Pass None to receive
+                the rendered workbook as bytes.
             engine: The rendering engine to use. Options are "openpyxl" (default)
                 or "xlsxwriter".
         """
-        engine_instance = get_engine(engine, path)
+        engine_instance = get_engine(engine)
         for sheet in self._node.sheets:
             render_sheet(engine_instance, sheet)
-        engine_instance.save()
+        return engine_instance.save(target)
 
     def to_openpyxl(self) -> _OpenpyxlWorkbook:
         """Convert to an openpyxl Workbook object.
@@ -42,8 +48,8 @@ class Workbook:
         """
         from .engines.openpyxl_engine import OpenpyxlEngine
 
-        # Create a temporary path - we won't actually save to it
-        engine = OpenpyxlEngine(Path("/tmp/temp.xlsx"))
+        # Render with the openpyxl engine without persisting to disk
+        engine = OpenpyxlEngine()
         for sheet in self._node.sheets:
             render_sheet(engine, sheet)
         return engine._workbook
