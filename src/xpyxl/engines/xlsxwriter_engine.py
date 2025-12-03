@@ -44,7 +44,9 @@ class XlsxWriterEngine(Engine):
     def __init__(self) -> None:
         super().__init__()
         self._buffer = BytesIO()
-        self._workbook = xlsxwriter.Workbook(self._buffer, {"in_memory": True})
+        # Convert NaN/INF to Excel errors to avoid xlsxwriter write_number() failures
+        workbook_options = {"in_memory": True, "nan_inf_to_errors": True}
+        self._workbook = xlsxwriter.Workbook(self._buffer, workbook_options)
         self._current_sheet: Worksheet | None = None
         # Cache format objects to avoid duplicates
         self._format_cache: dict[tuple[Any, ...], Format] = {}
