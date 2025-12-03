@@ -79,22 +79,22 @@ Benchmark results comparing the two rendering engines across different scenarios
 
 | Size    | Engine      | Time (s) | Memory (MB) |
 |---------|-------------|----------|-------------|
-| 100     | openpyxl    | 0.1140   | 0.67        |
-| 100     | xlsxwriter  | 0.0295   | 0.49        |
-| 1,000   | openpyxl    | 1.1095   | 3.07        |
-| 1,000   | xlsxwriter  | 0.2442   | 2.04        |
-| 10,000  | openpyxl    | 13.1806  | 31.24       |
-| 10,000  | xlsxwriter  | 4.1040   | 17.81       |
-| 50,000  | openpyxl    | 65.8414  | 156.31      |
-| 50,000  | xlsxwriter  | 20.5352  | 94.43       |
+| 100     | openpyxl    | 0.0977   | 0.68        |
+| 100     | xlsxwriter  | 0.0325   | 0.50        |
+| 1,000   | openpyxl    | 0.9354   | 3.10        |
+| 1,000   | xlsxwriter  | 0.2565   | 2.04        |
+| 10,000  | openpyxl    | 11.2455  | 31.26       |
+| 10,000  | xlsxwriter  | 4.0539   | 17.81       |
+| 50,000  | openpyxl    | 55.5080  | 156.33      |
+| 50,000  | xlsxwriter  | 20.5686  | 94.43       |
 
-**Summary**: xlsxwriter is **3.2-4.5x faster** and uses **1.4-1.8x less memory** for large tables.
+**Summary**: xlsxwriter is **2.7-3.7x faster** and uses **1.4-1.8x less memory** for large tables. The openpyxl engine has been optimized with style object caching, providing **~15% performance improvement** compared to previous versions.
 
 #### Simple Layouts
 
 | Engine      | Time (s) | Memory (MB) |
 |-------------|----------|-------------|
-| openpyxl    | 0.0085   | 0.38        |
+| openpyxl    | 0.0084   | 0.38        |
 | xlsxwriter  | 0.0058   | 0.34        |
 
 **Summary**: xlsxwriter is **1.5x faster** with similar memory usage.
@@ -103,10 +103,10 @@ Benchmark results comparing the two rendering engines across different scenarios
 
 | Engine      | Time (s) | Memory (MB) |
 |-------------|----------|-------------|
-| openpyxl    | 0.1654   | 0.69        |
-| xlsxwriter  | 0.0451   | 0.52        |
+| openpyxl    | 0.1462   | 0.69        |
+| xlsxwriter  | 0.0454   | 0.52        |
 
-**Summary**: xlsxwriter is **3.7x faster** and uses **1.3x less memory** for multi-sheet workbooks with styling.
+**Summary**: xlsxwriter is **3.2x faster** and uses **1.3x less memory** for multi-sheet workbooks with styling.
 
 Run benchmarks yourself:
 
