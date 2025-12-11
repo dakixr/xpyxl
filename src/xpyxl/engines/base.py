@@ -121,6 +121,19 @@ class Engine(ABC):
         ...
 
     @abstractmethod
+    def copy_sheet(
+        self, source: SaveTarget | bytes | BinaryIO, sheet_name: str, dest_name: str
+    ) -> None:
+        """Copy an existing sheet from another workbook into this workbook.
+
+        Args:
+            source: Path, file-like, or bytes of the source workbook.
+            sheet_name: Name of the sheet within the source workbook to copy.
+            dest_name: Name of the sheet to create in the destination workbook.
+        """
+        ...
+
+    @abstractmethod
     def save(self, target: SaveTarget | None = None) -> bytes | None:
         """Finalize and persist the workbook.
 

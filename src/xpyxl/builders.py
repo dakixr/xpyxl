@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import TypeAlias, cast
+from pathlib import Path
+from typing import BinaryIO, TypeAlias, cast
 
 from ._workbook import Workbook
 from .nodes import (
@@ -9,6 +10,7 @@ from .nodes import (
     CellValue,
     ColumnNode,
     HorizontalStackNode,
+    ImportedSheetNode,
     RowNode,
     SheetComponent,
     SheetItem,
@@ -23,6 +25,7 @@ from .styles import Style, normalize_hex
 __all__ = [
     "cell",
     "col",
+    "import_sheet",
     "row",
     "space",
     "vstack",
@@ -249,15 +252,20 @@ class SheetBuilder:
                 )
                 raise TypeError(msg)
         return SheetNode(
-            name=self._name, items=tuple(entries), background_color=self._background_color
+            name=self._name,
+            items=tuple(entries),
+            background_color=self._background_color,
         )
 
 
 class WorkbookBuilder:
-    def __getitem__(self, sheets: SheetNode | Sequence[SheetNode]) -> Workbook:
-        sheet_nodes: list[SheetNode] = []
+    def __getitem__(
+        self,
+        sheets: SheetNode | ImportedSheetNode | Sequence[SheetNode | ImportedSheetNode],
+    ) -> Workbook:
+        sheet_nodes: list[SheetNode | ImportedSheetNode] = []
         for item in _as_tuple(sheets):
-            if isinstance(item, SheetNode):
+            if isinstance(item, (SheetNode, ImportedSheetNode)):
                 sheet_nodes.append(item)
             else:
                 raise TypeError(
@@ -290,6 +298,18 @@ def table(
 
 def sheet(name: str, *, background_color: str | None = None) -> SheetBuilder:
     return SheetBuilder(name, background_color=background_color)
+
+
+def import_sheet(
+    source: str | Path | bytes | BinaryIO,
+    sheet_name: str,
+    *,
+    name: str | None = None,
+) -> ImportedSheetNode:
+    """Import an existing sheet from a workbook without translating it."""
+
+    dest_name = name or sheet_name
+    return ImportedSheetNode(name=dest_name, source=source, source_sheet=sheet_name)
 
 
 def space(rows: int = 1, *, height: float | None = None) -> SpacerNode:

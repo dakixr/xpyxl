@@ -14,7 +14,7 @@ if str(_src_dir) not in sys.path:
     sys.path.insert(0, str(_src_dir))
 
 import xpyxl as x  # noqa: E402
-from xpyxl.nodes import SheetNode  # noqa: E402
+from xpyxl.nodes import ImportedSheetNode, SheetNode  # noqa: E402
 
 
 def load_module_from_path(module_name: str, file_path: Path) -> ModuleType:
@@ -86,7 +86,7 @@ def main() -> None:
     print("-" * 60)
 
     # Collect all sheets from all modules
-    all_sheets: list[SheetNode] = []
+    all_sheets: list[SheetNode | ImportedSheetNode] = []
     seen_sheet_names: set[str] = set()
     success_count = 0
 
@@ -103,13 +103,22 @@ def main() -> None:
                 if original_name in seen_sheet_names:
                     # Rename with module prefix
                     new_name = f"{module_name}-{original_name}"
-                    all_sheets.append(
-                        SheetNode(
-                            name=new_name,
-                            items=sheet.items,
-                            background_color=sheet.background_color,
+                    if isinstance(sheet, ImportedSheetNode):
+                        all_sheets.append(
+                            ImportedSheetNode(
+                                name=new_name,
+                                source=sheet.source,
+                                source_sheet=sheet.source_sheet,
+                            )
                         )
-                    )
+                    else:
+                        all_sheets.append(
+                            SheetNode(
+                                name=new_name,
+                                items=sheet.items,
+                                background_color=sheet.background_color,
+                            )
+                        )
                     seen_sheet_names.add(new_name)
                 else:
                     all_sheets.append(sheet)
@@ -132,6 +141,10 @@ def main() -> None:
     # Create combined workbook
     print(f"\nCreating combined workbook with {len(all_sheets)} sheet(s)...")
     combined_workbook = x.workbook()[*all_sheets]
+    has_imported = any(isinstance(sheet, ImportedSheetNode) for sheet in all_sheets)
+    xlsxwriter_sheets = [
+        sheet for sheet in all_sheets if not isinstance(sheet, ImportedSheetNode)
+    ]
 
     # Save with both engines
     openpyxl_path = output_dir / "combined-output-openpyxl.xlsx"
@@ -148,14 +161,18 @@ def main() -> None:
         traceback.print_exc()
 
     print(f"\nSaving with xlsxwriter engine to {xlsxwriter_path.name}...")
-    try:
-        combined_workbook.save(xlsxwriter_path, engine="xlsxwriter")
-        print(f"✓ Successfully saved {xlsxwriter_path.name}")
-    except Exception as e:
-        print(f"✗ Error saving with xlsxwriter: {e}")
-        import traceback
+    if not xlsxwriter_sheets:
+        print("Skipping xlsxwriter save: no sheets available for xlsxwriter output.")
+    else:
+        xlsxwriter_workbook = x.workbook()[*xlsxwriter_sheets]
+        try:
+            xlsxwriter_workbook.save(xlsxwriter_path, engine="xlsxwriter")
+            print(f"✓ Successfully saved {xlsxwriter_path.name}")
+        except Exception as e:
+            print(f"✗ Error saving with xlsxwriter: {e}")
+            import traceback
 
-        traceback.print_exc()
+            traceback.print_exc()
 
     print("\n" + "-" * 60)
     print(f"Completed: {success_count}/{len(example_files)} examples succeeded")

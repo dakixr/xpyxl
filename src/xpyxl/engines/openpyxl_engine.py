@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import copy
 from io import BytesIO
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, BinaryIO
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
+from openpyxl.cell.cell import MergedCell
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
@@ -232,6 +234,117 @@ class OpenpyxlEngine(Engine):
         ):
             for cell in row:
                 cell.fill = sheet_fill
+
+    def copy_sheet(
+        self, source: SaveTarget | bytes | BinaryIO, sheet_name: str, dest_name: str
+    ) -> None:
+        """Copy a sheet from an external workbook without translation."""
+
+        if isinstance(source, (str, Path)):
+            source_wb = load_workbook(filename=source, data_only=False, rich_text=True)
+        else:
+            buffer: BinaryIO
+            if isinstance(source, bytes):
+                buffer = BytesIO(source)
+            else:
+                buffer = source
+                if hasattr(buffer, "seek"):
+                    try:
+                        buffer.seek(0)
+                    except Exception:
+                        pass
+            source_wb = load_workbook(buffer, data_only=False, rich_text=True)
+
+        if sheet_name not in source_wb.sheetnames:
+            raise ValueError(f"Sheet '{sheet_name}' not found in source workbook")
+
+        source_ws = source_wb[sheet_name]
+        target_ws = self._workbook.create_sheet(dest_name)
+        self._current_sheet = target_ws
+
+        # Basic sheet properties
+        target_ws.sheet_properties = copy.copy(source_ws.sheet_properties)
+        target_ws.sheet_format = copy.copy(source_ws.sheet_format)
+        target_ws.page_margins = copy.copy(source_ws.page_margins)
+        target_ws.page_setup = copy.copy(source_ws.page_setup)
+        target_ws.print_options = copy.copy(source_ws.print_options)
+        target_ws.protection = copy.copy(source_ws.protection)
+        target_ws.freeze_panes = source_ws.freeze_panes
+        target_ws.auto_filter = copy.copy(source_ws.auto_filter)
+        target_ws.print_area = source_ws.print_area
+        target_ws.print_title_rows = source_ws.print_title_rows
+        target_ws.print_title_cols = source_ws.print_title_cols
+
+        # Sheet view (cannot assign the object; copy key attributes)
+        source_view = source_ws.sheet_view
+        target_view = target_ws.sheet_view
+        for attr in (
+            "view",
+            "zoomScale",
+            "zoomScaleNormal",
+            "zoomScalePageLayoutView",
+            "showGridLines",
+            "showRowColHeaders",
+            "rightToLeft",
+            "tabSelected",
+        ):
+            if hasattr(source_view, attr):
+                setattr(target_view, attr, getattr(source_view, attr))
+
+        # Column and row dimensions
+        for key, dim in source_ws.column_dimensions.items():
+            target_ws.column_dimensions[key] = copy.copy(dim)
+        for key, dim in source_ws.row_dimensions.items():
+            target_ws.row_dimensions[key] = copy.copy(dim)
+
+        # Merge ranges
+        for merged_range in source_ws.merged_cells.ranges:
+            target_ws.merge_cells(str(merged_range))
+
+        # Copy cells with styles, comments, and hyperlinks
+        for row in source_ws.iter_rows():
+            for cell in row:
+                if isinstance(cell, MergedCell):
+                    continue
+                target_cell = target_ws.cell(row=cell.row, column=cell.column)
+                target_cell.value = cell.value  # type: ignore[assignment]
+                if cell.has_style:
+                    target_cell._style = copy.copy(cell._style)  # type: ignore[attr-defined]
+                if getattr(cell, "hyperlink", None):
+                    target_cell._hyperlink = copy.copy(cell._hyperlink)  # type: ignore[attr-defined]
+                if cell.comment:
+                    target_cell.comment = copy.copy(cell.comment)
+
+        # Data validations
+        if source_ws.data_validations is not None:
+            for dv in source_ws.data_validations.dataValidation:
+                cloned = copy.copy(dv)
+                cloned.ranges = list(dv.ranges)
+                target_ws.add_data_validation(cloned)
+
+        # Conditional formatting
+        if source_ws.conditional_formatting:
+            for (
+                key,
+                rules,
+            ) in source_ws.conditional_formatting._cf_rules.items():  # type: ignore[attr-defined]
+                target_ws.conditional_formatting._cf_rules[key] = copy.deepcopy(rules)  # type: ignore[attr-defined]
+
+        # Tables
+        source_tables = getattr(source_ws, "_tables", [])
+        if source_tables:
+            if not hasattr(target_ws, "_tables"):
+                target_ws._tables = []  # type: ignore[attr-defined]
+            for table in source_tables:
+                cloned_table = copy.deepcopy(table)
+                cloned_table._parent = target_ws
+                target_ws._tables.append(cloned_table)  # type: ignore[attr-defined]
+
+        # Charts and images
+        for chart in getattr(source_ws, "_charts", []):
+            target_ws.add_chart(copy.deepcopy(chart))
+        for image in getattr(source_ws, "_images", []):
+            target_ws.add_image(copy.deepcopy(image))
 
     def save(self, target: SaveTarget | None = None) -> bytes | None:
         if target is None:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from xpyxl.nodes import SheetNode
+from xpyxl.nodes import ImportedSheetNode, SheetNode
 
 from ._workbook import Workbook
 from .builders import (
@@ -8,6 +8,7 @@ from .builders import (
     cell,
     col,
     hstack,
+    import_sheet,
     row,
     sheet,
     space,
@@ -101,12 +102,14 @@ from .styles import (
 __all__ = [
     "Workbook",
     "SheetNode",
+    "ImportedSheetNode",
     "Node",
     "Style",
     "BorderStyleName",
     "BorderStyleLiteral",
     "workbook",
     "sheet",
+    "import_sheet",
     "row",
     "col",
     "cell",

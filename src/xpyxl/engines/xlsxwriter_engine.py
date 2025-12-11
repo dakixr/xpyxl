@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from io import BytesIO
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, BinaryIO
 
 import xlsxwriter
 
@@ -220,6 +220,12 @@ class XlsxWriterEngine(Engine):
         for row_idx in range(max_row):
             for col_idx in range(max_col):
                 self._current_sheet.write_blank(row_idx, col_idx, None, bg_fmt)
+
+    def copy_sheet(
+        self, source: SaveTarget | bytes | BinaryIO, sheet_name: str, dest_name: str
+    ) -> None:
+        msg = "Importing/copying existing sheets is only supported by the openpyxl engine."
+        raise NotImplementedError(msg)
 
     def save(self, target: SaveTarget | None = None) -> bytes | None:
         if not self._closed:

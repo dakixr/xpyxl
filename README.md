@@ -64,6 +64,22 @@ workbook.save("output-openpyxl.xlsx", engine="openpyxl")
 workbook.save("output-xlsxwriter.xlsx", engine="xlsxwriter")
 ```
 
+## Importing existing sheets
+
+You can pull in a static sheet from an existing Excel file without translating it into xpyxl nodes:
+
+```
+template = x.import_sheet("template.xlsx", "Cover")
+report = x.workbook()[
+    template,
+    x.sheet("Data")[x.row()["Item", "Value"], x.row()["A", 1]],
+]
+
+report.save("with-template.xlsx", engine="openpyxl")
+```
+
+Copying sheets from existing workbooks is supported by the **openpyxl** engine. If you call `save(..., engine="xlsxwriter")` with imported sheets present, a `NotImplementedError` is raised.
+
 ### Saving without touching disk
 
 `Workbook.save` accepts a filesystem path, any binary buffer (like `io.BytesIO()`), or no target at all to get the raw bytes back:

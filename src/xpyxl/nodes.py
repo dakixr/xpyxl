@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TypeAlias
+from pathlib import Path
+from typing import BinaryIO, TypeAlias
 
 from .styles import Style
 
@@ -14,6 +15,7 @@ __all__ = [
     "VerticalStackNode",
     "HorizontalStackNode",
     "SheetNode",
+    "ImportedSheetNode",
     "WorkbookNode",
     "SheetItem",
     "RenderableItem",
@@ -93,5 +95,14 @@ class SheetNode:
 
 
 @dataclass(frozen=True)
+class ImportedSheetNode:
+    """Reference to an existing Excel sheet to be copied as-is."""
+
+    name: str
+    source: str | Path | bytes | BinaryIO
+    source_sheet: str
+
+
+@dataclass(frozen=True)
 class WorkbookNode:
-    sheets: tuple[SheetNode, ...]
+    sheets: tuple[SheetNode | ImportedSheetNode, ...]

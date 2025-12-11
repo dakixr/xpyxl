@@ -9,6 +9,7 @@ from .nodes import (
     CellNode,
     ColumnNode,
     HorizontalStackNode,
+    ImportedSheetNode,
     RenderableItem,
     RowNode,
     SheetComponent,
@@ -489,13 +490,17 @@ def _apply_dimensions(
         engine.set_row_height(row_index, height)
 
 
-def render_sheet(engine: Engine, node: SheetNode) -> None:
+def render_sheet(engine: Engine, node: SheetNode | ImportedSheetNode) -> None:
     """Render a sheet node using the given engine.
 
     Args:
         engine: The rendering engine to use
         node: The sheet node to render
     """
+    if isinstance(node, ImportedSheetNode):
+        engine.copy_sheet(node.source, node.source_sheet, node.name)
+        return
+
     engine.create_sheet(node.name)
 
     col_widths: dict[int, float] = {}
