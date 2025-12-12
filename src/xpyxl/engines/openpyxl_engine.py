@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, BinaryIO
@@ -21,6 +23,15 @@ if TYPE_CHECKING:
 __all__ = ["OpenpyxlEngine"]
 
 
+@dataclass
+class _TemplateState:
+    source_identity: tuple[str, str] | None
+    keep_sheets: set[str] = field(default_factory=set)
+
+    def keep(self, name: str) -> None:
+        self.keep_sheets.add(name)
+
+
 class OpenpyxlEngine(Engine):
     """Rendering engine using openpyxl."""
 
@@ -32,6 +43,7 @@ class OpenpyxlEngine(Engine):
         if default_sheet is not None:
             self._workbook.remove(default_sheet)
         self._current_sheet: Worksheet | None = None
+        self._template: _TemplateState | None = None
         # Cache style objects to avoid duplicates
         self._style_cache: dict[tuple[Any, ...], dict[str, Any]] = {}
         # Cache color conversions
@@ -41,6 +53,8 @@ class OpenpyxlEngine(Engine):
 
     def create_sheet(self, name: str) -> None:
         self._current_sheet = self._workbook.create_sheet(title=name)
+        if self._template is not None:
+            self._template.keep(name)
 
     def write_cell(
         self,
@@ -235,33 +249,18 @@ class OpenpyxlEngine(Engine):
             for cell in row:
                 cell.fill = sheet_fill
 
-    def copy_sheet(
-        self, source: SaveTarget | bytes | BinaryIO, sheet_name: str, dest_name: str
-    ) -> None:
-        """Copy a sheet from an external workbook without translation."""
+    def _deep_copy_workbook(self, workbook: Workbook) -> Workbook:
+        buffer = BytesIO()
+        workbook.save(buffer)
+        buffer.seek(0)
+        return load_workbook(
+            buffer,
+            data_only=False,
+            keep_vba=True,
+            rich_text=True,
+        )
 
-        if isinstance(source, (str, Path)):
-            source_wb = load_workbook(filename=source, data_only=False, rich_text=True)
-        else:
-            buffer: BinaryIO
-            if isinstance(source, bytes):
-                buffer = BytesIO(source)
-            else:
-                buffer = source
-                if hasattr(buffer, "seek"):
-                    try:
-                        buffer.seek(0)
-                    except Exception:
-                        pass
-            source_wb = load_workbook(buffer, data_only=False, rich_text=True)
-
-        if sheet_name not in source_wb.sheetnames:
-            raise ValueError(f"Sheet '{sheet_name}' not found in source workbook")
-
-        source_ws = source_wb[sheet_name]
-        target_ws = self._workbook.create_sheet(dest_name)
-        self._current_sheet = target_ws
-
+    def _clone_sheet_contents(self, source_ws: Worksheet, target_ws: Worksheet) -> None:
         # Basic sheet properties
         target_ws.sheet_properties = copy.copy(source_ws.sheet_properties)
         target_ws.sheet_format = copy.copy(source_ws.sheet_format)
@@ -346,7 +345,109 @@ class OpenpyxlEngine(Engine):
         for image in getattr(source_ws, "_images", []):
             target_ws.add_image(copy.deepcopy(image))
 
+    def _source_identity(self, source: SaveTarget | bytes | BinaryIO) -> tuple[str, str] | None:
+        if isinstance(source, (str, Path)):
+            return ("path", str(Path(source).resolve()))
+        if isinstance(source, bytes):
+            return ("bytes", hashlib.sha256(source).hexdigest())
+        return None
+
+    def _load_source_workbook(
+        self, source: SaveTarget | bytes | BinaryIO
+    ) -> tuple[Workbook, tuple[str, str] | None]:
+        identity = self._source_identity(source)
+
+        if isinstance(source, (str, Path)):
+            workbook = load_workbook(
+                filename=source,
+                data_only=False,
+                keep_vba=True,
+                rich_text=True,
+            )
+            return workbook, identity
+
+        buffer: BinaryIO
+        if isinstance(source, bytes):
+            buffer = BytesIO(source)
+        else:
+            buffer = source
+            if hasattr(buffer, "seek"):
+                try:
+                    buffer.seek(0)
+                except Exception:
+                    pass
+
+        workbook = load_workbook(
+            buffer,
+            data_only=False,
+            keep_vba=True,
+            rich_text=True,
+        )
+        return workbook, identity
+
+    def _ensure_sheet_name_available(self, name: str) -> None:
+        if name in self._workbook.sheetnames:
+            raise ValueError(f"Sheet '{name}' already exists in destination workbook")
+
+    def _maybe_start_from_template(
+        self, source_wb: Workbook, source_identity: tuple[str, str] | None
+    ) -> None:
+        if self._template is not None:
+            return
+        if self._workbook.sheetnames:
+            return
+
+        # Prefer a workbook-level deep copy when we haven't rendered anything yet.
+        # This keeps themes, shared styles, and other workbook-level structures intact.
+        self._template = _TemplateState(source_identity=source_identity)
+        self._workbook = self._deep_copy_workbook(source_wb)
+        self._current_sheet = None
+
+    def _resolve_copy_source_sheet(
+        self,
+        source_wb: Workbook,
+        source_identity: tuple[str, str] | None,
+        sheet_name: str,
+    ) -> Worksheet:
+        if (
+            self._template is not None
+            and self._template.source_identity is not None
+            and self._template.source_identity == source_identity
+            and sheet_name in self._workbook.sheetnames
+        ):
+            return self._workbook[sheet_name]
+        return source_wb[sheet_name]
+
+    def copy_sheet(
+        self, source: SaveTarget | bytes | BinaryIO, sheet_name: str, dest_name: str
+    ) -> None:
+        """Copy a sheet from an external workbook without translation."""
+
+        source_wb, source_identity = self._load_source_workbook(source)
+
+        if sheet_name not in source_wb.sheetnames:
+            raise ValueError(f"Sheet '{sheet_name}' not found in source workbook")
+
+        self._ensure_sheet_name_available(dest_name)
+
+        self._maybe_start_from_template(source_wb, source_identity)
+
+        source_ws = self._resolve_copy_source_sheet(
+            source_wb, source_identity, sheet_name
+        )
+        target_ws = self._workbook.create_sheet(title=dest_name)
+        self._clone_sheet_contents(source_ws, target_ws)
+
+        self._current_sheet = target_ws
+        if self._template is not None:
+            self._template.keep(dest_name)
+
     def save(self, target: SaveTarget | None = None) -> bytes | None:
+        if self._template is not None and self._template.keep_sheets:
+            for ws in list(self._workbook.worksheets):
+                if ws.title not in self._template.keep_sheets:
+                    self._workbook.remove(ws)
+
         if target is None:
             buffer = BytesIO()
             self._workbook.save(buffer)
