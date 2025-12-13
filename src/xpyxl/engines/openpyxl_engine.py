@@ -51,6 +51,22 @@ class OpenpyxlEngine(Engine):
         # Cache column letters
         self._column_letter_cache: dict[int, str] = {}
 
+    @classmethod
+    def from_workbook(cls, workbook: Workbook) -> "OpenpyxlEngine":
+        """Create an engine instance wrapping an existing openpyxl Workbook.
+
+        This allows reusing copy_sheet() and other engine methods against
+        a workbook that was loaded or created externally (e.g., from xlsxwriter bytes).
+        """
+        engine = cls.__new__(cls)
+        engine._workbook = workbook
+        engine._current_sheet = None
+        engine._template = None
+        engine._style_cache = {}
+        engine._color_cache = {}
+        engine._column_letter_cache = {}
+        return engine
+
     def create_sheet(self, name: str) -> None:
         self._current_sheet = self._workbook.create_sheet(title=name)
         if self._template is not None:
@@ -345,7 +361,9 @@ class OpenpyxlEngine(Engine):
         for image in getattr(source_ws, "_images", []):
             target_ws.add_image(copy.deepcopy(image))
 
-    def _source_identity(self, source: SaveTarget | bytes | BinaryIO) -> tuple[str, str] | None:
+    def _source_identity(
+        self, source: SaveTarget | bytes | BinaryIO
+    ) -> tuple[str, str] | None:
         if isinstance(source, (str, Path)):
             return ("path", str(Path(source).resolve()))
         if isinstance(source, bytes):

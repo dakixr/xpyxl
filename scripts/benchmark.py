@@ -17,6 +17,8 @@ _src_dir = _project_root / "src"
 if str(_src_dir) not in sys.path:
     sys.path.insert(0, str(_src_dir))
 
+import openpyxl  # noqa: E402
+
 import xpyxl as x  # noqa: E402
 from xpyxl.engines import EngineName  # noqa: E402
 
@@ -292,6 +294,106 @@ def benchmark_complex_layouts(engine_name: EngineName) -> None:
         Path(tmp_path).unlink(missing_ok=True)
 
 
+def _create_template_file(path: Path) -> None:
+    """Create a template workbook file for import_sheet testing.
+
+    Args:
+        path: Path where template file should be created
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    if ws is None:
+        raise RuntimeError("Expected an active worksheet in template workbook")
+    ws.title = "Template"
+
+    # Add content with a merge
+    ws["A1"] = "Template Title"
+    ws["A1"].style = "Title"
+    ws.merge_cells("A1:C1")
+
+    # Add more content
+    ws["A3"] = "Notes"
+    ws["A4"] = "Static content from template"
+
+    # Set dimensions
+    ws.column_dimensions["A"].width = 24
+    ws.column_dimensions["B"].width = 16
+    ws.row_dimensions[1].height = 28
+
+    # Set freeze panes and auto filter
+    ws.freeze_panes = "A3"
+    ws.auto_filter.ref = "A3:C10"
+
+    wb.save(path)
+
+
+def benchmark_hybrid_vs_openpyxl(
+    engine_name: EngineName,
+    num_imported: int,
+    num_generated: int,
+    generated_table_size: int,
+) -> None:
+    """Benchmark hybrid xlsxwriter vs pure openpyxl with import_sheet.
+
+    Args:
+        engine_name: Engine to use ("openpyxl" or "xlsxwriter")
+        num_imported: Number of imported sheets to include
+        num_generated: Number of generated sheets to include
+        generated_table_size: Number of rows in generated tables
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        template_path = tmppath / "template.xlsx"
+        output_path = tmppath / "output.xlsx"
+
+        # Create template file
+        _create_template_file(template_path)
+
+        # Build sheets list
+        sheets = []
+
+        # Add imported sheets
+        for i in range(num_imported):
+            sheets.append(
+                x.import_sheet(template_path, "Template", name=f"Imported_{i + 1}")
+            )
+
+        # Add generated sheets with tables
+        for i in range(num_generated):
+            # Generate table data
+            rows = []
+            for idx in range(generated_table_size):
+                rows.append(
+                    {
+                        "Row": idx,
+                        "Name": f"Item {idx}",
+                        "Category": "Even" if idx % 2 == 0 else "Odd",
+                        "Value": idx * 1.5,
+                        "Flag": "✔" if idx % 10 == 0 else "",
+                    }
+                )
+
+            table = x.table(style=[x.table_bordered, x.table_compact])[rows]
+            sheets.append(
+                x.sheet(f"Generated_{i + 1}")[
+                    x.row(style=[x.text_lg, x.bold])[f"Generated Sheet {i + 1}"],
+                    x.space(),
+                    table,
+                ]
+            )
+
+        # Create workbook
+        workbook = x.workbook()[*sheets]
+
+        # Save to temporary file
+        try:
+            workbook.save(output_path, engine=engine_name)
+        finally:
+            # Clean up
+            output_path.unlink(missing_ok=True)
+
+
 def print_results(results: list[BenchmarkResult]) -> None:
     """Print formatted benchmark results to console.
 
@@ -331,10 +433,10 @@ def print_results(results: list[BenchmarkResult]) -> None:
                 size_results = by_size[size]
                 for result in sorted(size_results, key=lambda r: r.engine):
                     status = "✓" if result.success else "✗"
-                    time_str = f"{result.execution_time:.4f}" if result.success else "N/A"
-                    mem_str = (
-                        f"{result.memory_peak:.2f}" if result.success else "N/A"
+                    time_str = (
+                        f"{result.execution_time:.4f}" if result.success else "N/A"
                     )
+                    mem_str = f"{result.memory_peak:.2f}" if result.success else "N/A"
                     print(
                         f"{status} {size:>8,} {result.engine:<15} {time_str:<12} {mem_str:<15}"
                     )
@@ -347,17 +449,14 @@ def print_results(results: list[BenchmarkResult]) -> None:
                     None,
                 )
                 xlsxwriter_result = next(
-                    (
-                        r
-                        for r in size_results
-                        if r.engine == "xlsxwriter" and r.success
-                    ),
+                    (r for r in size_results if r.engine == "xlsxwriter" and r.success),
                     None,
                 )
 
                 if openpyxl_result and xlsxwriter_result:
                     time_ratio = (
-                        openpyxl_result.execution_time / xlsxwriter_result.execution_time
+                        openpyxl_result.execution_time
+                        / xlsxwriter_result.execution_time
                     )
                     mem_ratio = (
                         openpyxl_result.memory_peak / xlsxwriter_result.memory_peak
@@ -370,8 +469,8 @@ def print_results(results: list[BenchmarkResult]) -> None:
                         else "equal"
                     )
                     print(
-                        f"    → {faster} is {max(time_ratio, 1/time_ratio):.2f}x faster, "
-                        f"{'openpyxl' if mem_ratio > 1 else 'xlsxwriter'} uses {max(mem_ratio, 1/mem_ratio):.2f}x more memory"
+                        f"    → {faster} is {max(time_ratio, 1 / time_ratio):.2f}x faster, "
+                        f"{'openpyxl' if mem_ratio > 1 else 'xlsxwriter'} uses {max(mem_ratio, 1 / mem_ratio):.2f}x more memory"
                     )
         else:
             # Print simple format for other scenarios
@@ -392,11 +491,7 @@ def print_results(results: list[BenchmarkResult]) -> None:
                 None,
             )
             xlsxwriter_result = next(
-                (
-                    r
-                    for r in scenario_results
-                    if r.engine == "xlsxwriter" and r.success
-                ),
+                (r for r in scenario_results if r.engine == "xlsxwriter" and r.success),
                 None,
             )
 
@@ -404,9 +499,7 @@ def print_results(results: list[BenchmarkResult]) -> None:
                 time_ratio = (
                     openpyxl_result.execution_time / xlsxwriter_result.execution_time
                 )
-                mem_ratio = (
-                    openpyxl_result.memory_peak / xlsxwriter_result.memory_peak
-                )
+                mem_ratio = openpyxl_result.memory_peak / xlsxwriter_result.memory_peak
                 faster = (
                     "openpyxl"
                     if time_ratio < 1
@@ -415,8 +508,8 @@ def print_results(results: list[BenchmarkResult]) -> None:
                     else "equal"
                 )
                 print(
-                    f"    → {faster} is {max(time_ratio, 1/time_ratio):.2f}x faster, "
-                    f"{'openpyxl' if mem_ratio > 1 else 'xlsxwriter'} uses {max(mem_ratio, 1/mem_ratio):.2f}x more memory"
+                    f"    → {faster} is {max(time_ratio, 1 / time_ratio):.2f}x faster, "
+                    f"{'openpyxl' if mem_ratio > 1 else 'xlsxwriter'} uses {max(mem_ratio, 1 / mem_ratio):.2f}x more memory"
                 )
 
     print("\n" + "=" * 80)
@@ -502,7 +595,7 @@ def main() -> None:
         )
 
     # Benchmark complex layouts
-    print("\n[3/3] Benchmarking Complex Layouts...")
+    print("\n[3/4] Benchmarking Complex Layouts...")
     for engine_str in ["openpyxl", "xlsxwriter"]:
         engine = cast(EngineName, engine_str)
         print(f"  Testing {engine}...")
@@ -513,6 +606,39 @@ def main() -> None:
             f"    {status} {engine}: {result.execution_time:.4f}s, "
             f"{result.memory_peak:.2f} MB"
         )
+
+    # Benchmark hybrid vs openpyxl (import_sheet scenarios)
+    print("\n[4/4] Benchmarking Hybrid vs Openpyxl (import_sheet)...")
+    hybrid_scenarios = [
+        # (num_imported, num_generated, generated_table_size, scenario_label)
+        (1, 1, 100, "1 imported + 1 small (100 rows)"),
+        (1, 1, 10_000, "1 imported + 1 large (10k rows)"),
+        (1, 3, 1_000, "1 imported + 3 generated (1k rows each)"),
+        (3, 1, 10_000, "3 imported + 1 large (10k rows)"),
+        (1, 0, 0, "1 imported only"),
+    ]
+
+    for num_imported, num_generated, table_size, label in hybrid_scenarios:
+        print(f"  Testing {label}...")
+        for engine_str in ["openpyxl", "xlsxwriter"]:
+            engine = cast(EngineName, engine_str)
+            # Use descriptive scenario name that includes the configuration
+            scenario_name = f"Hybrid vs Openpyxl: {label}"
+            result = run_benchmark(
+                engine,
+                scenario_name,
+                benchmark_hybrid_vs_openpyxl,
+                num_imported,
+                num_generated,
+                table_size,
+                table_size=table_size if table_size > 0 else None,
+            )
+            all_results.append(result)
+            status = "✓" if result.success else "✗"
+            print(
+                f"    {status} {engine}: {result.execution_time:.4f}s, "
+                f"{result.memory_peak:.2f} MB"
+            )
 
     # Print formatted results
     print_results(all_results)
@@ -530,4 +656,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

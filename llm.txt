@@ -1,45 +1,424 @@
 Using xpyxl with xlsxwriter (external agents)
-- Build: compose nodes (no coordinates) then save with the engine you want: `x.workbook()[x.sheet("Demo")[...]].save("out.xlsx", engine="xlsxwriter")`.
-- Primitives: `x.cell[...]`, `x.row[...]`, `x.col[...]`, `x.table()[...]`, `x.vstack(..., gap=0, style=[...])`, `x.hstack(..., gap=0, style=[...])`, `x.space(rows=1, height=None)`, `x.sheet(name, background_color=None)`, `x.workbook()[...]`.
-- Table inputs: sequence of sequences, sequence of dicts (header from keys), or dict-of-lists (columns zipped). `header_style=[...]`, `style=[...]`, `column_order=[...]`.
-- Saving: engine is chosen only at save time; both engines yield equivalent output. Use `engine="xlsxwriter"` when you want speed/low memory (as in README benchmarks).
-- Backgrounds: `sheet(..., background_color="#F8FAFC")` paints the grid (render fills a large area since xlsxwriter lacks sheet fill).
 
-Precomputed styles (combine in `style=[...]`)
-- Typography: `text_xs, text_sm, text_base, text_lg, text_xl, text_2xl, text_3xl, bold, italic, mono`.
-- Text colors: `text_red, text_green, text_blue, text_orange, text_purple, text_black, text_gray, text_muted, text_primary, text_white`.
-- Backgrounds: `bg_red, bg_primary, bg_muted, bg_success, bg_warning, bg_info`.
-- Alignment: `text_left, text_center, text_right, align_top, align_middle, align_bottom`.
-- Text wrapping: `wrap, nowrap, wrap_shrink, allow_overflow`.
-- Row sizing: `row_height(n), row_width(n)` (functions that take a float value).
-- Borders (sides): `border_all, border_top, border_bottom, border_left, border_right, border_x, border_y`.
-- Borders (styles): `border_thin, border_medium, border_thick, border_dashed, border_dotted, border_double, border_none`.
-- Borders (colors): `border_red, border_green, border_blue, border_orange, border_purple, border_black, border_gray, border_white, border_muted, border_primary`.
-- Tables: `table_bordered, table_banded, table_compact`.
-- Number/date formats: `number_comma, number_precision, percent, currency_usd, currency_eur, date_short, datetime_short, time_short`.
+## Basic Usage
 
-Custom styles with `x.Style()`
-- If precomputed styles don't meet your needs, use `x.Style()` with any combination of these options:
-  - Font: `font_name="Arial"`, `font_size=12.0`, `font_size_delta=1.0`, `bold=True/False`, `italic=True/False`, `mono=True/False`.
-  - Colors: `text_color="#FF0000"` (hex), `fill_color="#F0F0F0"` (hex).
-  - Alignment: `horizontal_align="left"/"center"/"right"`, `vertical_align="top"/"center"/"bottom"`, `indent=2` (integer).
-  - Text wrapping: `wrap_text=True/False`, `shrink_to_fit=True/False`, `auto_width=True/False`.
-  - Row sizing: `row_height=20.0`, `row_width=100.0`.
-  - Number format: `number_format="#,##0.00"` (Excel format string).
-  - Borders: `border="thin"/"medium"/"thick"/"dashed"/"dotted"/"double"/"none"` (or "dashDot", "dashDotDot", "hair", "mediumDashDot", "mediumDashDotDot", "mediumDashed", "slantDashDot"), `border_color="#000000"`, `border_top=True/False`, `border_bottom=True/False`, `border_left=True/False`, `border_right=True/False`.
-  - Tables: `table_bordered=True/False`, `table_banded=True/False`, `table_compact=True/False`.
-- Example: `x.Style(font_size=14.0, text_color="#FF5733", fill_color="#FFF5E6", border="medium", border_top=True, border_bottom=True)`.
+Build workbooks by composing nodes (no coordinates) then save with your preferred engine:
 
-Common patterns
-- Simple sheet: `x.sheet("Summary")[x.row(style=[x.text_2xl, x.bold])["Title"], x.row()["A", 1]]`.
-- Styled table: `x.table(header_style=[x.text_sm, x.text_gray], style=[x.table_bordered, x.table_compact])[{"Region": "EMEA", "Units": 1200}, ...]`.
-- Layouts: `x.vstack(...)` for vertical stacking with optional `gap`; `x.hstack(...)` to place blocks side by side; sprinkle `x.space()` for padding.
-- Multi-sheet: collect `SheetNode`s (each from `x.sheet(...)[...]`) into `x.workbook()[sheet1, sheet2]`.
+```python
+import xpyxl as x
 
-Real-world examples (ready to reuse)
-- Sales dashboard:
-  `x.workbook()[x.sheet("Sales", background_color="#F8FAFC")[x.row(style=[x.text_2xl, x.bold, x.text_blue])["Q3 Overview"], x.space(), x.table(header_style=[x.text_sm, x.text_gray], style=[x.table_bordered, x.table_banded, x.table_compact])[{"Region": "EMEA", "Units": 1200, "Price": 19.0}, {"Region": "APAC", "Units": 900, "Price": 21.0}, {"Region": "AMER", "Units": 1500, "Price": 18.5}], x.space(), x.hstack(x.row(style=[x.text_sm, x.text_gray])["Generated with xpyxl"], x.cell(style=[x.text_sm, x.text_gray])["Engine: xlsxwriter"], gap=2)]]`. Save with `engine="xlsxwriter"`.
-- Two-column layout:
-  `x.workbook()[x.sheet("Metrics")[x.hstack(x.vstack(x.row(style=[x.text_lg, x.bold])["KPI"], x.row()["MRR", 125000], x.row()["Churn", "2.1%"], gap=1, style=[x.border_all, x.bg_muted]), x.vstack(x.row(style=[x.text_lg, x.bold])["Notes"], x.row(style=[x.wrap])["Performance improved; keep monitoring churn drivers across regions."], gap=1, style=[x.border_all, x.bg_info]), gap=2)]]`. Save with `engine="xlsxwriter"`.
-- Minimal CSV-like export:
-  `x.workbook()[x.sheet("Data")[x.table(style=[x.table_compact])[{"id": 1, "name": "alpha"}, {"id": 2, "name": "beta"}]]]`. Save with `engine="xlsxwriter"` for faster large writes.
+workbook = x.workbook()[
+    x.sheet("Demo")[
+        x.row()["Hello", "World"]
+    ]
+]
+workbook.save("out.xlsx", engine="xlsxwriter")
+```
+
+## Primitives
+
+Core building blocks for creating sheets:
+
+```python
+# Single cell
+x.cell(style=[x.bold, x.text_blue])["Value"]
+
+# Row (horizontal)
+x.row(style=[x.bg_primary])["A", "B", "C"]
+
+# Column (vertical)
+x.col(style=[x.italic])["Item 1", "Item 2", "Item 3"]
+
+# Table with header
+x.table(header_style=[x.bold], style=[x.table_bordered])[
+    {"Name": "Alice", "Age": 30},
+    {"Name": "Bob", "Age": 25}
+]
+
+# Vertical stack with gap
+x.vstack(
+    x.row()["Top"],
+    x.row()["Middle"],
+    gap=1,
+    style=[x.border_all]
+)
+
+# Horizontal stack
+x.hstack(
+    x.col()["Left"],
+    x.col()["Right"],
+    gap=2
+)
+
+# Spacer
+x.space(rows=2, height=20.0)
+
+# Sheet with background
+x.sheet("MySheet", background_color="#F8FAFC")[
+    x.row()["Content"]
+]
+
+# Workbook container
+x.workbook()[sheet1, sheet2, sheet3]
+```
+
+## Table Input Formats
+
+Tables accept multiple input formats:
+
+```python
+# Sequence of sequences
+x.table()[
+    ["Name", "Age"],
+    ["Alice", 30],
+    ["Bob", 25]
+]
+
+# Sequence of dicts (header from keys)
+x.table()[
+    {"Region": "EMEA", "Units": 1200},
+    {"Region": "APAC", "Units": 900}
+]
+
+# Dict of lists (columns zipped)
+x.table()[
+    {
+        "Region": ["EMEA", "APAC"],
+        "Units": [1200, 900]
+    }
+]
+
+# With column order
+x.table(column_order=["Units", "Region"])[
+    {"Region": "EMEA", "Units": 1200}
+]
+```
+
+## Saving Workbooks
+
+Engine is chosen only at save time; both engines yield equivalent output:
+
+```python
+# Save to file path
+workbook.save("output.xlsx", engine="xlsxwriter")
+
+# Save to BytesIO buffer
+import io
+buffer = io.BytesIO()
+workbook.save(buffer, engine="xlsxwriter")
+
+# Get raw bytes (no target)
+raw_bytes = workbook.save(engine="xlsxwriter")
+Path("output.xlsx").write_bytes(raw_bytes)
+```
+
+Use `engine="xlsxwriter"` for speed/low memory (see README benchmarks). Use `engine="openpyxl"` for maximum feature support.
+
+## Importing Existing Sheets
+
+Copy sheets from existing workbooks (preserves styles, merges, formulas, etc.):
+
+```python
+# Import a sheet from existing workbook
+template = x.import_sheet("template.xlsx", "Cover", name="Cover Page")
+
+# Use in workbook
+workbook = x.workbook()[
+    template,
+    x.sheet("Data")[
+        x.table()[{"Item": "A", "Value": 1}]
+    ]
+]
+
+# Both engines support import_sheet
+workbook.save("output.xlsx", engine="openpyxl")   # Native support
+workbook.save("output.xlsx", engine="xlsxwriter") # Hybrid: xlsxwriter + openpyxl merge
+```
+
+Note: Both engines support `import_sheet`. When using `engine="xlsxwriter"` with imported sheets, xpyxl uses a hybrid approach: generated sheets are rendered with xlsxwriter for speed, then imported sheets are merged via openpyxl post-processing.
+
+## Precomputed Styles
+
+Combine styles in `style=[...]` lists:
+
+### Typography
+```python
+x.text_xs, x.text_sm, x.text_base, x.text_lg, x.text_xl, x.text_2xl, x.text_3xl
+x.bold, x.italic, x.mono
+```
+
+### Text Colors
+```python
+x.text_red, x.text_green, x.text_blue, x.text_orange, x.text_purple
+x.text_black, x.text_gray, x.text_muted, x.text_primary, x.text_white
+```
+
+### Backgrounds
+```python
+x.bg_red, x.bg_primary, x.bg_muted, x.bg_success, x.bg_warning, x.bg_info
+```
+
+### Alignment
+```python
+x.text_left, x.text_center, x.text_right
+x.align_top, x.align_middle, x.align_bottom
+```
+
+### Text Wrapping
+```python
+x.wrap          # Wrap text in cell
+x.nowrap        # No wrapping
+x.wrap_shrink   # Shrink to fit
+x.allow_overflow # Let text spill into adjacent empty cells when column is narrow
+```
+
+### Row/Column Sizing
+```python
+x.row_height(32.0)  # Set row height
+x.row_width(15.0)   # Set column width
+```
+
+### Borders (Sides)
+```python
+x.border_all, x.border_top, x.border_bottom
+x.border_left, x.border_right, x.border_x, x.border_y
+```
+
+### Borders (Styles)
+```python
+x.border_thin, x.border_medium, x.border_thick
+x.border_dashed, x.border_dotted, x.border_double, x.border_none
+```
+
+### Borders (Colors)
+```python
+x.border_red, x.border_green, x.border_blue, x.border_orange, x.border_purple
+x.border_black, x.border_gray, x.border_white, x.border_muted, x.border_primary
+```
+
+### Tables
+```python
+x.table_bordered, x.table_banded, x.table_compact
+```
+
+### Number/Date Formats
+```python
+x.number_comma, x.number_precision, x.percent
+x.currency_usd, x.currency_eur
+x.date_short, x.datetime_short, x.time_short
+```
+
+## Custom Styles
+
+If precomputed styles don't meet your needs, use `x.Style()`:
+
+```python
+# Font options
+x.Style(
+    font_name="Arial",
+    font_size=12.0,
+    font_size_delta=1.0,
+    bold=True,
+    italic=False,
+    mono=False
+)
+
+# Colors
+x.Style(
+    text_color="#FF0000",  # hex color
+    fill_color="#F0F0F0"   # hex color
+)
+
+# Alignment
+x.Style(
+    horizontal_align="left",    # "left", "center", "right"
+    vertical_align="top",       # "top", "center", "bottom"
+    indent=2                    # integer
+)
+
+# Text wrapping
+x.Style(
+    wrap_text=True,
+    shrink_to_fit=True,
+    auto_width=True
+)
+
+# Row/column sizing
+x.Style(
+    row_height=20.0,
+    row_width=100.0
+)
+
+# Number format (Excel format string)
+x.Style(number_format="#,##0.00")
+
+# Borders
+x.Style(
+    border="medium",           # "thin", "medium", "thick", "dashed", "dotted", 
+                               # "double", "none", "dashDot", "dashDotDot", "hair",
+                               # "mediumDashDot", "mediumDashDotDot", "mediumDashed", "slantDashDot"
+    border_color="#000000",
+    border_top=True,
+    border_bottom=True,
+    border_left=False,
+    border_right=False
+)
+
+# Table styles
+x.Style(
+    table_bordered=True,
+    table_banded=True,
+    table_compact=True
+)
+
+# Complete example
+custom_style = x.Style(
+    font_size=14.0,
+    text_color="#FF5733",
+    fill_color="#FFF5E6",
+    border="medium",
+    border_top=True,
+    border_bottom=True
+)
+```
+
+## Common Patterns
+
+### Simple Sheet
+```python
+x.sheet("Summary")[
+    x.row(style=[x.text_2xl, x.bold])["Title"],
+    x.row()["A", 1],
+    x.row()["B", 2]
+]
+```
+
+### Styled Table
+```python
+x.table(
+    header_style=[x.text_sm, x.text_gray, x.bold],
+    style=[x.table_bordered, x.table_compact]
+)[
+    {"Region": "EMEA", "Units": 1200, "Price": 19.0},
+    {"Region": "APAC", "Units": 900, "Price": 21.0}
+]
+```
+
+### Layouts with Stacks
+```python
+# Vertical stacking
+x.vstack(
+    x.row(style=[x.text_xl, x.bold])["Header"],
+    x.space(),
+    x.table()[...],
+    gap=1,
+    style=[x.border_all]
+)
+
+# Horizontal stacking
+x.hstack(
+    x.vstack(...),
+    x.vstack(...),
+    gap=2
+)
+```
+
+### Multi-Sheet Workbook
+```python
+sheet1 = x.sheet("Summary")[x.row()["Data 1"]]
+sheet2 = x.sheet("Details")[x.table()[...]]
+workbook = x.workbook()[sheet1, sheet2]
+```
+
+### Importing Templates
+```python
+template = x.import_sheet("template.xlsx", "Cover", name="Cover Page")
+workbook = x.workbook()[
+    template,
+    x.sheet("Data")[
+        x.table()[{"Item": "A", "Value": 1}]
+    ]
+]
+workbook.save("output.xlsx", engine="openpyxl")  # Both engines support imported sheets
+```
+
+## Real-World Examples
+
+### Sales Dashboard
+```python
+workbook = x.workbook()[
+    x.sheet("Sales", background_color="#F8FAFC")[
+        x.row(style=[x.text_2xl, x.bold, x.text_blue])["Q3 Overview"],
+        x.space(),
+        x.table(
+            header_style=[x.text_sm, x.text_gray],
+            style=[x.table_bordered, x.table_banded, x.table_compact]
+        )[
+            {"Region": "EMEA", "Units": 1200, "Price": 19.0},
+            {"Region": "APAC", "Units": 900, "Price": 21.0},
+            {"Region": "AMER", "Units": 1500, "Price": 18.5}
+        ],
+        x.space(),
+        x.hstack(
+            x.row(style=[x.text_sm, x.text_gray])["Generated with xpyxl"],
+            x.cell(style=[x.text_sm, x.text_gray])["Engine: xlsxwriter"],
+            gap=2
+        )
+    ]
+]
+workbook.save("sales.xlsx", engine="xlsxwriter")
+```
+
+### Two-Column Layout
+```python
+workbook = x.workbook()[
+    x.sheet("Metrics")[
+        x.hstack(
+            x.vstack(
+                x.row(style=[x.text_lg, x.bold])["KPI"],
+                x.row()["MRR", 125000],
+                x.row()["Churn", "2.1%"],
+                gap=1,
+                style=[x.border_all, x.bg_muted]
+            ),
+            x.vstack(
+                x.row(style=[x.text_lg, x.bold])["Notes"],
+                x.row(style=[x.wrap])[
+                    "Performance improved; keep monitoring churn drivers across regions."
+                ],
+                gap=1,
+                style=[x.border_all, x.bg_info]
+            ),
+            gap=2
+        )
+    ]
+]
+workbook.save("metrics.xlsx", engine="xlsxwriter")
+```
+
+### Minimal CSV-like Export
+```python
+workbook = x.workbook()[
+    x.sheet("Data")[
+        x.table(style=[x.table_compact])[
+            {"id": 1, "name": "alpha"},
+            {"id": 2, "name": "beta"}
+        ]
+    ]
+]
+workbook.save("data.xlsx", engine="xlsxwriter")  # Fast for large datasets
+```
+
+### Importing Existing Workbook Sheets
+```python
+template = x.import_sheet("template.xlsx", "Cover")
+workbook = x.workbook()[
+    template,
+    x.sheet("Data")[
+        x.row()["Item", "Value"],
+        x.row()["A", 1],
+        x.row()["B", 2]
+    ]
+]
+workbook.save("with-template.xlsx")  # Both engines support imported sheets
+```

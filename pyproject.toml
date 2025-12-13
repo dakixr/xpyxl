@@ -1,6 +1,6 @@
 [project]
 name = "xpyxl"
-version = "0.6.1"
+version = "0.6.2"
 description = "Create styled excel reports with declarative python."
 readme = "README.md"
 authors = [{ name = "dakixr", email = "dakixr@gmail.com" }]

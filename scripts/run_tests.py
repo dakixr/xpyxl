@@ -142,9 +142,6 @@ def main() -> None:
     print(f"\nCreating combined workbook with {len(all_sheets)} sheet(s)...")
     combined_workbook = x.workbook()[*all_sheets]
     has_imported = any(isinstance(sheet, ImportedSheetNode) for sheet in all_sheets)
-    xlsxwriter_sheets = [
-        sheet for sheet in all_sheets if not isinstance(sheet, ImportedSheetNode)
-    ]
 
     # Save with both engines
     openpyxl_path = output_dir / "combined-output-openpyxl.xlsx"
@@ -160,19 +157,20 @@ def main() -> None:
 
         traceback.print_exc()
 
+    # xlsxwriter now supports import_sheet via hybrid save (uses openpyxl post-processing)
     print(f"\nSaving with xlsxwriter engine to {xlsxwriter_path.name}...")
-    if not xlsxwriter_sheets:
-        print("Skipping xlsxwriter save: no sheets available for xlsxwriter output.")
-    else:
-        xlsxwriter_workbook = x.workbook()[*xlsxwriter_sheets]
-        try:
-            xlsxwriter_workbook.save(xlsxwriter_path, engine="xlsxwriter")
-            print(f"✓ Successfully saved {xlsxwriter_path.name}")
-        except Exception as e:
-            print(f"✗ Error saving with xlsxwriter: {e}")
-            import traceback
+    if has_imported:
+        print(
+            "  (using hybrid save: xlsxwriter for generated sheets, openpyxl for imports)"
+        )
+    try:
+        combined_workbook.save(xlsxwriter_path, engine="xlsxwriter")
+        print(f"✓ Successfully saved {xlsxwriter_path.name}")
+    except Exception as e:
+        print(f"✗ Error saving with xlsxwriter: {e}")
+        import traceback
 
-            traceback.print_exc()
+        traceback.print_exc()
 
     print("\n" + "-" * 60)
     print(f"Completed: {success_count}/{len(example_files)} examples succeeded")
