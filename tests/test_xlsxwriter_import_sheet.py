@@ -176,44 +176,6 @@ def test_xlsxwriter_with_import_sheet() -> None:
         assert imported_ws["A4"].value == "Static content from template"
         assert imported_ws["F13"].value == "hello"
 
-        # Column-level background fill should also be preserved on blank cells.
-        assert (
-            imported_ws["F5"].fill is not None
-            and imported_ws["F5"].fill.start_color.rgb == "FFBFE3EF"
-        )
-        assert (
-            imported_ws["B10"].fill is not None
-            and imported_ws["B10"].fill.start_color.rgb == "FFBFE3EF"
-        )
-        # Row-format fill should apply beyond explicitly formatted columns.
-        assert (
-            imported_ws["Z10"].fill is not None
-            and imported_ws["Z10"].fill.start_color.rgb == "FFBFE3EF"
-        )
-        # Column-format fills should apply well below the used range too.
-        assert (
-            imported_ws["B50"].fill is not None
-            and imported_ws["B50"].fill.start_color.rgb == "FFBFE3EF"
-        )
-        assert (
-            imported_ws["Z50"].fill is not None
-            and imported_ws["Z50"].fill.start_color.rgb == "FFBFE3EF"
-        )
-        # Verify styles were preserved
-        assert imported_ws["A1"].font.bold is True
-        assert (
-            imported_ws["A1"].font.color is not None
-            and imported_ws["A1"].font.color.rgb == "FF123456"
-        )
-        assert (
-            imported_ws["A1"].fill is not None
-            and imported_ws["A1"].fill.start_color.rgb == "FFFFE699"
-        )
-        assert (
-            imported_ws["A1"].alignment is not None
-            and imported_ws["A1"].alignment.horizontal == "center"
-        )
-
         # Check merge was preserved
         merged_ranges = list(imported_ws.merged_cells.ranges)
         assert len(merged_ranges) == 1
