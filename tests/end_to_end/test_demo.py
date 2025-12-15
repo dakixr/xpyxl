@@ -131,7 +131,7 @@ def test_combined_workbook() -> None:
 
     # Save with both engines
     openpyxl_path = output_dir / "combined-output-openpyxl.xlsx"
-    xlsxwriter_path = output_dir / "combined-output-xlsxwriter.xlsx"
+    hybrid_path = output_dir / "combined-output-hybrid.xlsx"
 
     # Test openpyxl engine save
     combined_workbook.save(openpyxl_path, engine="openpyxl")
@@ -139,15 +139,13 @@ def test_combined_workbook() -> None:
         f"openpyxl output file was not created: {openpyxl_path}"
     )
 
-    # Test xlsxwriter engine save (uses hybrid save for imported sheets if present)
-    combined_workbook.save(xlsxwriter_path, engine="xlsxwriter")
-    assert xlsxwriter_path.exists(), (
-        f"xlsxwriter output file was not created: {xlsxwriter_path}"
-    )
+    # Test hybrid engine save (xlsxwriter for generated sheets, openpyxl for imports)
+    combined_workbook.save(hybrid_path, engine="hybrid")
+    assert hybrid_path.exists(), f"hybrid output file was not created: {hybrid_path}"
 
     # Verify both files are valid Excel files by checking they exist and have content
     assert openpyxl_path.stat().st_size > 0, "openpyxl output file is empty"
-    assert xlsxwriter_path.stat().st_size > 0, "xlsxwriter output file is empty"
+    assert hybrid_path.stat().st_size > 0, "hybrid output file is empty"
 
 
 if __name__ == "__main__":

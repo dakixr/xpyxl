@@ -1,9 +1,12 @@
-"""Test hybrid xlsxwriter + import_sheet functionality.
+"""Test hybrid engine + import_sheet functionality.
 
 This test verifies that workbooks with import_sheet() can be saved using
-engine="xlsxwriter" via the hybrid save path (xlsxwriter for SheetNodes,
-openpyxl for ImportedSheetNodes with post-merge).
+engine="hybrid" which combines xlsxwriter for SheetNodes with openpyxl
+for ImportedSheetNodes with post-merge.
+
+Also tests that engine="xlsxwriter" correctly rejects import_sheet usage.
 """
+# cspell:disable
 
 from __future__ import annotations
 
@@ -107,8 +110,8 @@ def _create_style_heavy_template(path: Path) -> None:
     wb.save(path)
 
 
-def test_xlsxwriter_with_import_sheet() -> None:
-    """Test that xlsxwriter engine works with import_sheet via hybrid save."""
+def test_hybrid_with_import_sheet() -> None:
+    """Test that hybrid engine works with import_sheet."""
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
         template_path = tmppath / "template.xlsx"
@@ -130,8 +133,8 @@ def test_xlsxwriter_with_import_sheet() -> None:
             ],
         ]
 
-        # Save with xlsxwriter engine (should use hybrid save)
-        workbook.save(output_path, engine="xlsxwriter")
+        # Save with hybrid engine
+        workbook.save(output_path, engine="hybrid")
 
         # Verify the output
         result_wb = openpyxl.load_workbook(output_path)
@@ -201,8 +204,8 @@ def test_xlsxwriter_with_import_sheet() -> None:
         print("✓ All assertions passed!")
 
 
-def test_xlsxwriter_only_imported_sheets() -> None:
-    """Test hybrid save when workbook has only imported sheets (no SheetNodes)."""
+def test_hybrid_only_imported_sheets() -> None:
+    """Test hybrid engine when workbook has only imported sheets (no SheetNodes)."""
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
         template_path = tmppath / "template.xlsx"
@@ -216,8 +219,8 @@ def test_xlsxwriter_only_imported_sheets() -> None:
             x.import_sheet(template_path, "Template", name="OnlyImported"),
         ]
 
-        # Save with xlsxwriter engine
-        workbook.save(output_path, engine="xlsxwriter")
+        # Save with hybrid engine
+        workbook.save(output_path, engine="hybrid")
 
         # Verify the output
         result_wb = openpyxl.load_workbook(output_path)
@@ -269,8 +272,74 @@ def test_xlsxwriter_no_imported_sheets() -> None:
         print("✓ No-imported test passed!")
 
 
-def test_xlsxwriter_bytes_output() -> None:
-    """Test hybrid save returns bytes when target is None."""
+def test_xlsxwriter_rejects_import_sheet() -> None:
+    """Test that xlsxwriter engine raises error when import_sheet is used."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        template_path = tmppath / "template.xlsx"
+        output_path = tmppath / "output.xlsx"
+
+        # Create template
+        _create_template(template_path)
+
+        # Build workbook with imported sheet
+        workbook = x.workbook()[
+            x.sheet("Gen")[x.row()["Data"]],
+            x.import_sheet(template_path, "Template", name="Imported"),
+        ]
+
+        # Attempting to save with xlsxwriter should raise NotImplementedError
+        with pytest.raises(NotImplementedError) as excinfo:
+            workbook.save(output_path, engine="xlsxwriter")
+
+        # Check error message mentions the alternative engines
+        error_message = str(excinfo.value)
+        assert "import_sheet" in error_message
+        assert "xlsxwriter" in error_message
+        assert "hybrid" in error_message or "openpyxl" in error_message
+
+        print("✓ xlsxwriter rejection test passed!")
+
+
+def test_hybrid_no_imported_sheets() -> None:
+    """Test that hybrid engine works when no import_sheet is used.
+
+    Even without imported sheets, the hybrid engine should work correctly,
+    generating sheets via xlsxwriter and saving via openpyxl.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        output_path = tmppath / "output.xlsx"
+
+        # Build workbook with only generated sheets
+        workbook = x.workbook()[
+            x.sheet("Sheet1")[x.row()["Hello", "World"]],
+            x.sheet("Sheet2")[x.row()["Foo", "Bar"]],
+        ]
+
+        # Save with hybrid engine
+        workbook.save(output_path, engine="hybrid")
+
+        # Verify the output
+        result_wb = openpyxl.load_workbook(output_path)
+
+        from io import BytesIO
+
+        with zipfile.ZipFile(output_path) as zf:
+            assert zf.testzip() is None
+
+        roundtrip = BytesIO()
+        result_wb.save(roundtrip)
+        assert roundtrip.getvalue()
+        assert result_wb.sheetnames == ["Sheet1", "Sheet2"]
+        assert result_wb["Sheet1"]["A1"].value == "Hello"
+        assert result_wb["Sheet2"]["A1"].value == "Foo"
+
+        print("✓ Hybrid no-imported test passed!")
+
+
+def test_hybrid_bytes_output() -> None:
+    """Test hybrid engine returns bytes when target is None."""
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
         template_path = tmppath / "template.xlsx"
@@ -284,8 +353,8 @@ def test_xlsxwriter_bytes_output() -> None:
             x.import_sheet(template_path, "Template"),
         ]
 
-        # Save with xlsxwriter engine, no target (returns bytes)
-        result_bytes = workbook.save(engine="xlsxwriter")
+        # Save with hybrid engine, no target (returns bytes)
+        result_bytes = workbook.save(engine="hybrid")
 
         assert result_bytes is not None
         assert isinstance(result_bytes, bytes)
@@ -301,7 +370,7 @@ def test_xlsxwriter_bytes_output() -> None:
         print("✓ Bytes output test passed!")
 
 
-def test_xlsxwriter_with_style_heavy_import_sheet() -> None:
+def test_hybrid_with_style_heavy_import_sheet() -> None:
     """Regression: importing a style-heavy sheet must not break openpyxl save."""
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
@@ -315,7 +384,7 @@ def test_xlsxwriter_with_style_heavy_import_sheet() -> None:
             x.import_sheet(template_path, "Template", name="Imported"),
         ]
 
-        workbook.save(output_path, engine="xlsxwriter")
+        workbook.save(output_path, engine="hybrid")
 
         result_wb = openpyxl.load_workbook(output_path)
 

@@ -1,4 +1,4 @@
-Using xpyxl with xlsxwriter (external agents)
+Using xpyxl (external agents)
 
 ## Basic Usage
 
@@ -12,7 +12,9 @@ workbook = x.workbook()[
         x.row()["Hello", "World"]
     ]
 ]
-workbook.save("out.xlsx", engine="xlsxwriter")
+workbook.save("out.xlsx")                       # hybrid (default)
+workbook.save("out.xlsx", engine="xlsxwriter")  # fast, generation only
+workbook.save("out.xlsx", engine="openpyxl")    # full-featured
 ```
 
 ## Primitives
@@ -96,7 +98,11 @@ x.table(column_order=["Units", "Region"])[
 
 ## Saving Workbooks
 
-Engine is chosen only at save time; both engines yield equivalent output:
+Engine is chosen only at save time. Three engines available:
+
+- **hybrid** (default): Combines xlsxwriter speed for generated sheets with openpyxl for importing sheets. Best balance of speed and features.
+- **openpyxl**: Full-featured with comprehensive Excel support including `import_sheet`.
+- **xlsxwriter**: Fast, memory-efficient. Does NOT support `import_sheet`.
 
 ```python
 # Save to file path
@@ -105,14 +111,14 @@ workbook.save("output.xlsx", engine="xlsxwriter")
 # Save to BytesIO buffer
 import io
 buffer = io.BytesIO()
-workbook.save(buffer, engine="xlsxwriter")
+workbook.save(buffer, engine="hybrid")
 
 # Get raw bytes (no target)
-raw_bytes = workbook.save(engine="xlsxwriter")
+raw_bytes = workbook.save(engine="openpyxl")
 Path("output.xlsx").write_bytes(raw_bytes)
 ```
 
-Use `engine="xlsxwriter"` for speed/low memory (see README benchmarks). Use `engine="openpyxl"` for maximum feature support.
+The default `engine="hybrid"` provides the best balance of speed and features. Use `engine="xlsxwriter"` for maximum speed when not importing sheets. Use `engine="openpyxl"` for maximum feature support.
 
 ## Importing Existing Sheets
 
@@ -130,12 +136,13 @@ workbook = x.workbook()[
     ]
 ]
 
-# Both engines support import_sheet
-workbook.save("output.xlsx", engine="openpyxl")   # Native support
-workbook.save("output.xlsx", engine="xlsxwriter") # Hybrid: xlsxwriter + openpyxl merge
+# Engine support for import_sheet:
+workbook.save("output.xlsx")                      # hybrid (default) - fast + import support
+workbook.save("output.xlsx", engine="openpyxl")   # Full native support
+# workbook.save("output.xlsx", engine="xlsxwriter")  # ERROR: xlsxwriter does NOT support import_sheet
 ```
 
-Note: Both engines support `import_sheet`. When using `engine="xlsxwriter"` with imported sheets, xpyxl uses a hybrid approach: generated sheets are rendered with xlsxwriter for speed, then imported sheets are merged via openpyxl post-processing.
+**Important**: `engine="xlsxwriter"` does NOT support `import_sheet`. The default `engine="hybrid"` provides fast generation with import support.
 
 ## Precomputed Styles
 
@@ -339,7 +346,7 @@ workbook = x.workbook()[
         x.table()[{"Item": "A", "Value": 1}]
     ]
 ]
-workbook.save("output.xlsx", engine="openpyxl")  # Both engines support imported sheets
+workbook.save("output.xlsx")  # hybrid (default) - fast + import support
 ```
 
 ## Real-World Examples
@@ -420,5 +427,5 @@ workbook = x.workbook()[
         x.row()["B", 2]
     ]
 ]
-workbook.save("with-template.xlsx")  # Both engines support imported sheets
+workbook.save("with-template.xlsx")  # hybrid (default) - fast + import support
 ```

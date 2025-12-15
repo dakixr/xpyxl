@@ -228,7 +228,10 @@ class XlsxWriterEngine(Engine):
     def copy_sheet(
         self, source: SaveTarget | bytes | BinaryIO, sheet_name: str, dest_name: str
     ) -> None:
-        msg = "Importing/copying existing sheets is only supported by the openpyxl engine."
+        msg = (
+            "import_sheet is not supported with engine='xlsxwriter'. "
+            "Use engine='hybrid' or engine='openpyxl' instead."
+        )
         raise NotImplementedError(msg)
 
     def save(self, target: SaveTarget | None = None) -> bytes | None:

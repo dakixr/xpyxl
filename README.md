@@ -37,16 +37,18 @@ report.save("report.xlsx")
 
 ## Rendering Engines
 
-xpyxl supports two rendering engines:
+xpyxl supports three rendering engines:
 
-- **openpyxl** (default): Full-featured with comprehensive Excel support. Best for complex workbooks with advanced formatting and importing existing sheets.
-- **xlsxwriter**: Fast, memory-efficient. Ideal for large datasets and performance-critical applications (2-3x faster for big tables).
+- **hybrid** (default): Combines xlsxwriter speed for generated sheets with openpyxl for importing existing sheets. Best balance of speed and features.
+- **openpyxl**: Full-featured with comprehensive Excel support. Best for complex workbooks with advanced formatting.
+- **xlsxwriter**: Fast, memory-efficient. Ideal for large datasets and performance-critical applications. Does **not** support `import_sheet`.
 
 Specify the engine when saving:
 
 ```python
-workbook.save("output.xlsx", engine="openpyxl")  # default
-workbook.save("output.xlsx", engine="xlsxwriter")
+workbook.save("output.xlsx")                       # hybrid (default)
+workbook.save("output.xlsx", engine="openpyxl")    # full-featured
+workbook.save("output.xlsx", engine="xlsxwriter")  # fast, generation only
 ```
 
 `Workbook.save` accepts a filesystem path, any binary buffer (like `io.BytesIO()`), or no target to get raw bytes:
@@ -71,13 +73,16 @@ report = x.workbook()[
     x.import_sheet("template.xlsx", "Cover"),
     x.sheet("Data")[x.row()["Item", "Value"], x.row()["A", 1]],
 ]
-report.save("with-template.xlsx")
+report.save("with-template.xlsx")  # uses hybrid by default (fast + imports)
 ```
 
-Imported sheets preserve styles, merges, dimensions, freeze panes, filters, and other properties from the source file. Both engines support `import_sheet`:
+Imported sheets preserve styles, merges, dimensions, freeze panes, filters, and other properties from the source file.
 
-- **openpyxl**: Native support with full fidelity.
-- **xlsxwriter**: Uses a hybrid approach—generated sheets are rendered with xlsxwriter for speed, then imported sheets are merged via openpyxl post-processing. This adds a small overhead but allows mixing fast xlsxwriter rendering with template imports.
+Engine support for `import_sheet`:
+
+- **hybrid** (default): Combines xlsxwriter speed for generated sheets with openpyxl for importing. Best balance of speed and features.
+- **openpyxl**: Full support with native fidelity.
+- **xlsxwriter**: Does **not** support `import_sheet`. Use `hybrid` or `openpyxl` instead.
 
 ## Primitives
 
