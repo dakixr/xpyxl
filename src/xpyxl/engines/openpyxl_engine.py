@@ -358,10 +358,6 @@ class OpenpyxlEngine(Engine):
                     target_cell.alignment = copy.copy(cell.alignment)  # pyright: ignore[reportAttributeAccessIssue]
                     target_cell.number_format = cell.number_format
                     target_cell.protection = copy.copy(cell.protection)  # pyright: ignore[reportAttributeAccessIssue]
-                    try:
-                        target_cell.style = cell.style
-                    except Exception:
-                        pass
                 if getattr(cell, "hyperlink", None):
                     target_cell._hyperlink = copy.copy(cell._hyperlink)  # type: ignore[attr-defined]
                 if cell.comment:

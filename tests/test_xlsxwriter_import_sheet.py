@@ -35,7 +35,9 @@ def _create_template(path: Path) -> None:
     # Add content with a merge
     ws["A1"] = "Template Title"
     ws["A1"].font = Font(bold=True, color="FF123456")
-    ws["A1"].fill = PatternFill(fill_type="solid", start_color="FFFFE699", end_color="FFFFE699")
+    ws["A1"].fill = PatternFill(
+        fill_type="solid", start_color="FFFFE699", end_color="FFFFE699"
+    )
     ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
     ws.merge_cells("A1:C1")
 
@@ -110,7 +112,7 @@ def test_xlsxwriter_with_import_sheet() -> None:
         # Build workbook with imported sheet + generated sheets
         workbook = x.workbook()[
             x.sheet("Before")[
-                x.row(style=[x.bold])["Generated Before"],
+                x.row(style=[x.bold, x.bg_warning, x.text_white])[None],
                 x.row()["A", 1],
             ],
             x.import_sheet(template_path, "Template", name="Imported"),
@@ -146,7 +148,11 @@ def test_xlsxwriter_with_import_sheet() -> None:
 
         # Check generated sheets have content
         before_ws = result_wb["Before"]
-        assert before_ws["A1"].value == "Generated Before"
+        assert before_ws["A1"].value is None
+        assert (
+            before_ws["A1"].fill is not None
+            and before_ws["A1"].fill.fgColor.rgb == "FFB45309"
+        )
         assert before_ws["A2"].value == "A"
         assert before_ws["B2"].value == 1
 
@@ -162,9 +168,18 @@ def test_xlsxwriter_with_import_sheet() -> None:
         assert imported_ws["A4"].value == "Static content from template"
         # Verify styles were preserved
         assert imported_ws["A1"].font.bold is True
-        assert imported_ws["A1"].font.color is not None and imported_ws["A1"].font.color.rgb == "FF123456"
-        assert imported_ws["A1"].fill is not None and imported_ws["A1"].fill.start_color.rgb == "FFFFE699"
-        assert imported_ws["A1"].alignment is not None and imported_ws["A1"].alignment.horizontal == "center"
+        assert (
+            imported_ws["A1"].font.color is not None
+            and imported_ws["A1"].font.color.rgb == "FF123456"
+        )
+        assert (
+            imported_ws["A1"].fill is not None
+            and imported_ws["A1"].fill.start_color.rgb == "FFFFE699"
+        )
+        assert (
+            imported_ws["A1"].alignment is not None
+            and imported_ws["A1"].alignment.horizontal == "center"
+        )
 
         # Check merge was preserved
         merged_ranges = list(imported_ws.merged_cells.ranges)

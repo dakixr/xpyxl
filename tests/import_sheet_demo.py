@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import openpyxl
+from openpyxl.styles import PatternFill
 
 import xpyxl as x
 
@@ -19,7 +20,15 @@ def _build_template(path: Path) -> None:
 
     ws["A1"] = "Template Cover"
     ws["A1"].style = "Title"
+    ws["A1"].fill = PatternFill(
+        start_color="FFFFCC", end_color="FFFFCC", fill_type="solid"
+    )
     ws.merge_cells("A1:C1")
+
+    ws["F1"].fill = PatternFill(
+        start_color="FFFFCC", end_color="FFFFCC", fill_type="solid"
+    )
+    ws.merge_cells("F1:F12")
 
     ws["A3"] = "Notes"
     ws["A4"] = "Static content from Excel"

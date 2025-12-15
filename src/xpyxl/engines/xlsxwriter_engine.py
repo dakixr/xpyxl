@@ -101,6 +101,10 @@ class XlsxWriterEngine(Engine):
         # Fill color
         if style.fill_color:
             fill_color = normalize_hex(style.fill_color)
+            # XlsxWriter requires a fill pattern for background colors to render.
+            # Use a solid pattern and set both foreground/background for compatibility.
+            fmt.set_pattern(1)
+            fmt.set_fg_color(fill_color)
             fmt.set_bg_color(fill_color)
 
         # Alignment
