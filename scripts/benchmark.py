@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import sys
 import tempfile
 import time
 import tracemalloc
@@ -11,16 +10,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, cast
 
-# Add src directory to Python path before importing xpyxl
+import openpyxl
+
+import xpyxl as x
+from xpyxl.engines import EngineName
+
 _project_root = Path(__file__).resolve().parent.parent
-_src_dir = _project_root / "src"
-if str(_src_dir) not in sys.path:
-    sys.path.insert(0, str(_src_dir))
-
-import openpyxl  # noqa: E402
-
-import xpyxl as x  # noqa: E402
-from xpyxl.engines import EngineName  # noqa: E402
 
 __all__ = ["main"]
 

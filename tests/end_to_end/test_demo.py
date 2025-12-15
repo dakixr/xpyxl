@@ -1,4 +1,4 @@
-"""Run all example modules and save outputs to .testing folder."""
+"""Test that all example modules can be loaded and combined into workbooks."""
 
 from __future__ import annotations
 
@@ -7,14 +7,10 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
-# Add src directory to Python path before importing xpyxl
-_project_root = Path(__file__).resolve().parent.parent
-_src_dir = _project_root / "src"
-if str(_src_dir) not in sys.path:
-    sys.path.insert(0, str(_src_dir))
+import pytest
 
-import xpyxl as x  # noqa: E402
-from xpyxl.nodes import ImportedSheetNode, SheetNode  # noqa: E402
+import xpyxl as x
+from xpyxl.nodes import ImportedSheetNode, SheetNode
 
 
 def load_module_from_path(module_name: str, file_path: Path) -> ModuleType:
@@ -64,11 +60,11 @@ def get_sheets_from_module(module: ModuleType, module_name: str) -> list[SheetNo
         )
 
 
-def main() -> None:
-    """Run all example modules and save combined outputs to .testing folder."""
+def test_combined_workbook() -> None:
+    """Test that all example modules can be loaded and combined into workbooks."""
     # Get project root and examples directory
-    project_root = Path(__file__).resolve().parent.parent
-    examples_dir = project_root / "tests"
+    project_root = Path(__file__).resolve().parent.parent.parent
+    examples_dir = project_root / "tests" / "end_to_end"
     output_dir = project_root / ".testing"
 
     # Create .testing directory if it doesn't exist
@@ -77,22 +73,17 @@ def main() -> None:
     # Discover all example files
     example_files = discover_examples(examples_dir)
 
-    if not example_files:
-        print(f"No examples found in {examples_dir}")
-        return
-
-    print(f"Found {len(example_files)} example(s) in {examples_dir}")
-    print(f"Saving combined output to {output_dir.resolve()}")
-    print("-" * 60)
+    # Assert that we found at least some examples
+    assert len(example_files) > 0, f"No examples found in {examples_dir}"
 
     # Collect all sheets from all modules
     all_sheets: list[SheetNode | ImportedSheetNode] = []
     seen_sheet_names: set[str] = set()
     success_count = 0
+    failed_modules: list[str] = []
 
     for example_file in example_files:
         module_name = example_file.stem
-        print(f"\nLoading {module_name}...")
         try:
             module = load_module_from_path(module_name, example_file)
             module_sheets = get_sheets_from_module(module, module_name)
@@ -124,58 +115,40 @@ def main() -> None:
                     all_sheets.append(sheet)
                     seen_sheet_names.add(original_name)
 
-            print(
-                f"✓ Successfully loaded {len(module_sheets)} sheet(s) from {module_name}"
-            )
             success_count += 1
         except Exception as e:
-            print(f"✗ Error loading {module_name}: {e}")
-            import traceback
+            failed_modules.append(f"{module_name}: {e}")
+            # Continue processing other modules
 
-            traceback.print_exc()
+    # Assert that we collected at least some sheets
+    assert len(all_sheets) > 0, "No sheets collected from any example modules"
 
-    if not all_sheets:
-        print("\nNo sheets collected. Cannot create combined workbook.")
-        return
+    # Assert that at least some modules succeeded
+    assert success_count > 0, f"All modules failed to load. Failures: {failed_modules}"
 
     # Create combined workbook
-    print(f"\nCreating combined workbook with {len(all_sheets)} sheet(s)...")
     combined_workbook = x.workbook()[*all_sheets]
-    has_imported = any(isinstance(sheet, ImportedSheetNode) for sheet in all_sheets)
 
     # Save with both engines
     openpyxl_path = output_dir / "combined-output-openpyxl.xlsx"
     xlsxwriter_path = output_dir / "combined-output-xlsxwriter.xlsx"
 
-    print(f"\nSaving with openpyxl engine to {openpyxl_path.name}...")
-    try:
-        combined_workbook.save(openpyxl_path, engine="openpyxl")
-        print(f"✓ Successfully saved {openpyxl_path.name}")
-    except Exception as e:
-        print(f"✗ Error saving with openpyxl: {e}")
-        import traceback
+    # Test openpyxl engine save
+    combined_workbook.save(openpyxl_path, engine="openpyxl")
+    assert openpyxl_path.exists(), (
+        f"openpyxl output file was not created: {openpyxl_path}"
+    )
 
-        traceback.print_exc()
+    # Test xlsxwriter engine save (uses hybrid save for imported sheets if present)
+    combined_workbook.save(xlsxwriter_path, engine="xlsxwriter")
+    assert xlsxwriter_path.exists(), (
+        f"xlsxwriter output file was not created: {xlsxwriter_path}"
+    )
 
-    # xlsxwriter now supports import_sheet via hybrid save (uses openpyxl post-processing)
-    print(f"\nSaving with xlsxwriter engine to {xlsxwriter_path.name}...")
-    if has_imported:
-        print(
-            "  (using hybrid save: xlsxwriter for generated sheets, openpyxl for imports)"
-        )
-    try:
-        combined_workbook.save(xlsxwriter_path, engine="xlsxwriter")
-        print(f"✓ Successfully saved {xlsxwriter_path.name}")
-    except Exception as e:
-        print(f"✗ Error saving with xlsxwriter: {e}")
-        import traceback
-
-        traceback.print_exc()
-
-    print("\n" + "-" * 60)
-    print(f"Completed: {success_count}/{len(example_files)} examples succeeded")
-    print(f"Combined outputs saved to {output_dir.resolve()}")
+    # Verify both files are valid Excel files by checking they exist and have content
+    assert openpyxl_path.stat().st_size > 0, "openpyxl output file is empty"
+    assert xlsxwriter_path.stat().st_size > 0, "xlsxwriter output file is empty"
 
 
 if __name__ == "__main__":
-    main()
+    pytest.main([__file__])

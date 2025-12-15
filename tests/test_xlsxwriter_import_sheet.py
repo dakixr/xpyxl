@@ -7,54 +7,62 @@ openpyxl for ImportedSheetNodes with post-merge).
 
 from __future__ import annotations
 
-import sys
 import tempfile
 import zipfile
 from pathlib import Path
 
-# Add src directory to Python path before importing xpyxl
-_project_root = Path(__file__).resolve().parent.parent
-_src_dir = _project_root / "src"
-if str(_src_dir) not in sys.path:
-    sys.path.insert(0, str(_src_dir))
+import openpyxl
+import pytest
+import xlsxwriter
+from openpyxl.styles import Alignment, Font, PatternFill
 
-import openpyxl  # noqa: E402
-from openpyxl.styles import Alignment, Font, PatternFill  # noqa: E402
-
-import xpyxl as x  # noqa: E402
+import xpyxl as x
 
 
 def _create_template(path: Path) -> None:
     """Create a template workbook with specific properties for testing."""
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    if ws is None:
-        raise RuntimeError("Expected an active worksheet")
-    ws.title = "Template"
+    wb = xlsxwriter.Workbook(path)
+    ws = wb.add_worksheet("Template")
 
-    # Add content with a merge
-    ws["A1"] = "Template Title"
-    ws["A1"].font = Font(bold=True, color="FF123456")
-    ws["A1"].fill = PatternFill(
-        fill_type="solid", start_color="FFFFE699", end_color="FFFFE699"
+    # Add content with a merge (styled)
+    title_fmt = wb.add_format(
+        {
+            "bold": True,
+            "font_color": "#123456",
+            "bg_color": "#FFE699",
+            "pattern": 1,
+            "align": "center",
+            "valign": "vcenter",
+        }
     )
-    ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
-    ws.merge_cells("A1:C1")
+    ws.merge_range("A1:C1", "Template Title", title_fmt)  # type: ignore[arg-type]
 
     # Add more content
-    ws["A3"] = "Notes"
-    ws["A4"] = "Static content from template"
+    ws.write("A3", "Notes")  # type: ignore[arg-type]
+    ws.write("A4", "Static content from template")  # type: ignore[arg-type]
 
-    # Set dimensions
-    ws.column_dimensions["A"].width = 24
-    ws.column_dimensions["B"].width = 16
-    ws.row_dimensions[1].height = 28
+    # Column-level fill format (Excel commonly stores this as column formatting,
+    # not as individual cell styles for blank cells).
+    col_fmt = wb.add_format({"bg_color": "#BFE3EF", "pattern": 1})
+    # Fill a wide area via column formatting (should apply to all rows).
+    ws.set_column("A:AJ", 8, col_fmt)  # type: ignore[arg-type]
+    ws.set_column("A:A", 24, col_fmt)  # type: ignore[arg-type]
+    ws.set_column("B:B", 16, col_fmt)  # type: ignore[arg-type]
+    ws.set_column("F:F", None, col_fmt)  # type: ignore[arg-type]
+    ws.write("F13", "hello")  # type: ignore[arg-type]
+    ws.set_row(0, 28)
+
+    # Row-level fill format (vertical band). This is how many templates paint
+    # large empty regions without explicit cell styles.
+    row_fmt = wb.add_format({"bg_color": "#BFE3EF", "pattern": 1})
+    for r in range(1, 13):  # Excel rows 2..13
+        ws.set_row(r, None, row_fmt)
 
     # Set freeze panes and auto filter
-    ws.freeze_panes = "A3"
-    ws.auto_filter.ref = "A3:C10"
+    ws.freeze_panes(2, 0)  # A3
+    ws.autofilter(2, 0, 9, 2)  # A3:C10
 
-    wb.save(path)
+    wb.close()
 
 
 def _create_style_heavy_template(path: Path) -> None:
@@ -166,6 +174,31 @@ def test_xlsxwriter_with_import_sheet() -> None:
         assert imported_ws["A1"].value == "Template Title"
         assert imported_ws["A3"].value == "Notes"
         assert imported_ws["A4"].value == "Static content from template"
+        assert imported_ws["F13"].value == "hello"
+
+        # Column-level background fill should also be preserved on blank cells.
+        assert (
+            imported_ws["F5"].fill is not None
+            and imported_ws["F5"].fill.start_color.rgb == "FFBFE3EF"
+        )
+        assert (
+            imported_ws["B10"].fill is not None
+            and imported_ws["B10"].fill.start_color.rgb == "FFBFE3EF"
+        )
+        # Row-format fill should apply beyond explicitly formatted columns.
+        assert (
+            imported_ws["Z10"].fill is not None
+            and imported_ws["Z10"].fill.start_color.rgb == "FFBFE3EF"
+        )
+        # Column-format fills should apply well below the used range too.
+        assert (
+            imported_ws["B50"].fill is not None
+            and imported_ws["B50"].fill.start_color.rgb == "FFBFE3EF"
+        )
+        assert (
+            imported_ws["Z50"].fill is not None
+            and imported_ws["Z50"].fill.start_color.rgb == "FFBFE3EF"
+        )
         # Verify styles were preserved
         assert imported_ws["A1"].font.bold is True
         assert (
@@ -340,10 +373,4 @@ def test_xlsxwriter_with_style_heavy_import_sheet() -> None:
 
 
 if __name__ == "__main__":
-    print("Running xlsxwriter + import_sheet tests...\n")
-    test_xlsxwriter_with_import_sheet()
-    test_xlsxwriter_only_imported_sheets()
-    test_xlsxwriter_no_imported_sheets()
-    test_xlsxwriter_bytes_output()
-    test_xlsxwriter_with_style_heavy_import_sheet()
-    print("\n✓ All tests passed!")
+    pytest.main([__file__])
