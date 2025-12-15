@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 
 # Add src directory to Python path before importing xpyxl
@@ -17,9 +18,10 @@ _src_dir = _project_root / "src"
 if str(_src_dir) not in sys.path:
     sys.path.insert(0, str(_src_dir))
 
-import openpyxl
+import openpyxl  # noqa: E402
+from openpyxl.styles import Alignment, Font, PatternFill  # noqa: E402
 
-import xpyxl as x
+import xpyxl as x  # noqa: E402
 
 
 def _create_template(path: Path) -> None:
@@ -47,6 +49,48 @@ def _create_template(path: Path) -> None:
     # Set freeze panes and auto filter
     ws.freeze_panes = "A3"
     ws.auto_filter.ref = "A3:C10"
+
+    wb.save(path)
+
+
+def _create_style_heavy_template(path: Path) -> None:
+    """Create a template with many distinct alignments/styles.
+
+    This catches cross-workbook style index copying bugs in openpyxl save
+    (e.g. alignmentId out of range) when hybrid-saving with xlsxwriter.
+    """
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    if ws is None:
+        raise RuntimeError("Expected an active worksheet")
+    ws.title = "Template"
+
+    for i in range(1, 75):
+        horiz = ["general", "left", "center", "right", "fill", "justify"][i % 6]
+        vert = ["top", "center", "bottom", "justify"][i % 4]
+        wrap = i % 2 == 0
+        indent = i % 6
+        rotation = (i * 15) % 90
+
+        a = ws.cell(row=i, column=1, value=f"Row {i}")
+        a.font = Font(bold=(i % 3 == 0), italic=(i % 5 == 0))
+        rgb = f"FF{(i * 3) % 255:02X}{(i * 7) % 255:02X}{(i * 11) % 255:02X}"
+        a.fill = PatternFill(fill_type="solid", start_color=rgb, end_color=rgb)
+        a.alignment = Alignment(
+            horizontal=horiz,
+            vertical=vert,
+            wrap_text=wrap,
+            indent=indent,
+            textRotation=rotation,
+        )
+
+        b = ws.cell(row=i, column=2, value=i)
+        b.number_format = "#,##0"
+        b.alignment = Alignment(horizontal="right", vertical=vert)
+
+    ws.column_dimensions["A"].width = 22
+    ws.column_dimensions["B"].width = 10
+    ws.row_dimensions[1].height = 20
 
     wb.save(path)
 
@@ -79,6 +123,17 @@ def test_xlsxwriter_with_import_sheet() -> None:
 
         # Verify the output
         result_wb = openpyxl.load_workbook(output_path)
+
+        # Ensure the produced file is round-trip writable by openpyxl (catches corruption)
+        from io import BytesIO
+
+        # Ensure the produced file is a valid zip container
+        with zipfile.ZipFile(output_path) as zf:
+            assert zf.testzip() is None
+
+        roundtrip = BytesIO()
+        result_wb.save(roundtrip)
+        assert roundtrip.getvalue()
 
         # Check sheet order matches declaration order
         expected_order = ["Before", "Imported", "After"]
@@ -149,6 +204,15 @@ def test_xlsxwriter_only_imported_sheets() -> None:
 
         # Verify the output
         result_wb = openpyxl.load_workbook(output_path)
+
+        from io import BytesIO
+
+        with zipfile.ZipFile(output_path) as zf:
+            assert zf.testzip() is None
+
+        roundtrip = BytesIO()
+        result_wb.save(roundtrip)
+        assert roundtrip.getvalue()
         assert result_wb.sheetnames == ["OnlyImported"]
         assert result_wb["OnlyImported"]["A1"].value == "Template Title"
 
@@ -172,6 +236,15 @@ def test_xlsxwriter_no_imported_sheets() -> None:
 
         # Verify the output
         result_wb = openpyxl.load_workbook(output_path)
+
+        from io import BytesIO
+
+        with zipfile.ZipFile(output_path) as zf:
+            assert zf.testzip() is None
+
+        roundtrip = BytesIO()
+        result_wb.save(roundtrip)
+        assert roundtrip.getvalue()
         assert result_wb.sheetnames == ["Sheet1", "Sheet2"]
         assert result_wb["Sheet1"]["A1"].value == "Hello"
         assert result_wb["Sheet2"]["A1"].value == "Foo"
@@ -211,10 +284,41 @@ def test_xlsxwriter_bytes_output() -> None:
         print("✓ Bytes output test passed!")
 
 
+def test_xlsxwriter_with_style_heavy_import_sheet() -> None:
+    """Regression: importing a style-heavy sheet must not break openpyxl save."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        template_path = tmppath / "template.xlsx"
+        output_path = tmppath / "output.xlsx"
+
+        _create_style_heavy_template(template_path)
+
+        workbook = x.workbook()[
+            x.sheet("Gen")[x.row()["Data"]],
+            x.import_sheet(template_path, "Template", name="Imported"),
+        ]
+
+        workbook.save(output_path, engine="xlsxwriter")
+
+        result_wb = openpyxl.load_workbook(output_path)
+
+        from io import BytesIO
+
+        with zipfile.ZipFile(output_path) as zf:
+            assert zf.testzip() is None
+
+        roundtrip = BytesIO()
+        result_wb.save(roundtrip)
+        assert roundtrip.getvalue()
+        assert result_wb.sheetnames == ["Gen", "Imported"]
+        assert result_wb["Imported"]["A1"].value == "Row 1"
+
+
 if __name__ == "__main__":
     print("Running xlsxwriter + import_sheet tests...\n")
     test_xlsxwriter_with_import_sheet()
     test_xlsxwriter_only_imported_sheets()
     test_xlsxwriter_no_imported_sheets()
     test_xlsxwriter_bytes_output()
+    test_xlsxwriter_with_style_heavy_import_sheet()
     print("\n✓ All tests passed!")

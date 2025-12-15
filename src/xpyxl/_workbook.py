@@ -52,7 +52,6 @@ class Workbook:
             merged_wb = _load_workbook(
                 BytesIO(xlsx_bytes),
                 data_only=False,
-                keep_vba=True,
                 rich_text=True,
             )
         else:
@@ -78,20 +77,37 @@ class Workbook:
     def _reorder_sheets(self, workbook: _OpenpyxlWorkbook) -> None:
         """Reorder workbook sheets to match self._node.sheets declaration order."""
         expected_order = [s.name for s in self._node.sheets]
-        # Access internal _sheets list (openpyxl doesn't expose a public reorder API)
-        current_sheets = list(workbook._sheets)  # type: ignore[attr-defined]
 
-        # Build a name -> worksheet mapping
-        sheet_by_name = {ws.title: ws for ws in current_sheets}
+        # Access internal _sheets list (openpyxl doesn't expose a public reorder API).
+        # Reorder in-place rather than replacing the list, to avoid breaking internal
+        # workbook invariants that Excel is sensitive to.
+        sheets = workbook._sheets  # type: ignore[attr-defined]
+        title_to_index = {ws.title: i for i, ws in enumerate(sheets)}
 
-        # Reorder according to expected_order
-        reordered = []
-        for name in expected_order:
-            if name in sheet_by_name:
-                reordered.append(sheet_by_name[name])
+        insert_at = 0
+        for title in expected_order:
+            idx = title_to_index.get(title)
+            if idx is None:
+                continue
 
-        # Replace workbook._sheets with the reordered list
-        workbook._sheets = reordered  # type: ignore[attr-defined]
+            if idx != insert_at:
+                ws = sheets.pop(idx)
+                sheets.insert(insert_at, ws)
+
+                # Update indices for the moved slice.
+                start = min(insert_at, idx)
+                end = max(insert_at, idx)
+                for j in range(start, end + 1):
+                    title_to_index[sheets[j].title] = j
+
+            insert_at += 1
+
+        # Ensure the active sheet index is valid after reordering.
+        try:
+            if sheets:
+                workbook.active = 0
+        except Exception:
+            pass
 
     def save(
         self,
