@@ -7,8 +7,7 @@ for importing existing sheets and performing the final save.
 from __future__ import annotations
 
 from io import BytesIO
-from pathlib import Path
-from typing import TYPE_CHECKING, BinaryIO
+from typing import BinaryIO
 
 from openpyxl import Workbook as _OpenpyxlWorkbook
 from openpyxl import load_workbook as _load_workbook
@@ -16,9 +15,6 @@ from openpyxl import load_workbook as _load_workbook
 from .base import EffectiveStyle, Engine, SaveTarget
 from .openpyxl_engine import OpenpyxlEngine
 from .xlsxwriter_engine import XlsxWriterEngine
-
-if TYPE_CHECKING:
-    pass
 
 __all__ = ["HybridEngine"]
 
