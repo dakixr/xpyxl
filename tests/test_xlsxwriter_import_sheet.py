@@ -34,7 +34,9 @@ def _create_template(path: Path) -> None:
 
     # Add content with a merge
     ws["A1"] = "Template Title"
-    ws["A1"].style = "Title"
+    ws["A1"].font = Font(bold=True, color="FF123456")
+    ws["A1"].fill = PatternFill(fill_type="solid", start_color="FFFFE699", end_color="FFFFE699")
+    ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
     ws.merge_cells("A1:C1")
 
     # Add more content
@@ -158,6 +160,11 @@ def test_xlsxwriter_with_import_sheet() -> None:
         assert imported_ws["A1"].value == "Template Title"
         assert imported_ws["A3"].value == "Notes"
         assert imported_ws["A4"].value == "Static content from template"
+        # Verify styles were preserved
+        assert imported_ws["A1"].font.bold is True
+        assert imported_ws["A1"].font.color is not None and imported_ws["A1"].font.color.rgb == "FF123456"
+        assert imported_ws["A1"].fill is not None and imported_ws["A1"].fill.start_color.rgb == "FFFFE699"
+        assert imported_ws["A1"].alignment is not None and imported_ws["A1"].alignment.horizontal == "center"
 
         # Check merge was preserved
         merged_ranges = list(imported_ws.merged_cells.ranges)
@@ -312,6 +319,9 @@ def test_xlsxwriter_with_style_heavy_import_sheet() -> None:
         assert roundtrip.getvalue()
         assert result_wb.sheetnames == ["Gen", "Imported"]
         assert result_wb["Imported"]["A1"].value == "Row 1"
+        # Spot-check a couple of style properties survive the import.
+        assert result_wb["Imported"]["A2"].alignment.wrap_text in (True, False)
+        assert result_wb["Imported"]["B2"].number_format == "#,##0"
 
 
 if __name__ == "__main__":

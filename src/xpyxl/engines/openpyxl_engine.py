@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 from dataclasses import dataclass, field
 from io import BytesIO
@@ -273,50 +274,148 @@ class OpenpyxlEngine(Engine):
             data_only=False,
         )
 
+    def _ensure_named_styles(self, source_wb: Workbook) -> None:
+        """Ensure named styles used by imported sheets exist in the destination workbook."""
+        try:
+            source_styles = list(getattr(source_wb, "named_styles", []))
+            dest_styles = list(getattr(self._workbook, "named_styles", []))
+        except Exception:
+            return
+
+        existing = {getattr(style, "name", None) for style in dest_styles}
+        for style in source_styles:
+            name = getattr(style, "name", None)
+            if not name or name in existing:
+                continue
+            try:
+                self._workbook.add_named_style(copy.copy(style))
+                existing.add(name)
+            except Exception:
+                # NamedStyle copying is best-effort; cell-level style objects
+                # are still copied below.
+                pass
+
     def _clone_sheet_contents(self, source_ws: Worksheet, target_ws: Worksheet) -> None:
         """Copy values and basic layout from a source sheet into a target sheet.
 
-        This is intentionally minimal to avoid copying workbook-scoped internals
-        (e.g. style indices) that can corrupt files when saving after a cross-
-        workbook copy.
+        This avoids copying workbook-scoped style indices (which can corrupt files
+        cross-workbook) and instead copies resolved style objects.
         """
-        # Values (including formulas); no styles.
+        # Basic sheet properties (safe, value-based)
+        try:
+            target_ws.sheet_properties = copy.copy(source_ws.sheet_properties)
+        except Exception:
+            pass
+        try:
+            target_ws.sheet_format = copy.copy(source_ws.sheet_format)
+        except Exception:
+            pass
+        try:
+            target_ws.page_margins = copy.copy(source_ws.page_margins)
+        except Exception:
+            pass
+        try:
+            target_ws.page_setup = copy.copy(source_ws.page_setup)
+        except Exception:
+            pass
+        try:
+            target_ws.print_options = copy.copy(source_ws.print_options)
+        except Exception:
+            pass
+        try:
+            target_ws.protection = copy.copy(source_ws.protection)
+        except Exception:
+            pass
+
+        try:
+            target_ws.freeze_panes = source_ws.freeze_panes
+        except Exception:
+            pass
+        try:
+            target_ws.auto_filter.ref = source_ws.auto_filter.ref
+        except Exception:
+            pass
+        try:
+            target_ws.sheet_view.zoomScale = source_ws.sheet_view.zoomScale
+        except Exception:
+            pass
+
+        # Values (including formulas) + cell-level style objects.
         for row in source_ws.iter_rows():
             for cell in row:
                 if isinstance(cell, MergedCell):
                     continue
                 if cell.row is None or cell.column is None:
                     continue
-                target_ws.cell(row=cell.row, column=cell.column, value=cell.value)
+                target_cell = target_ws.cell(
+                    row=cell.row, column=cell.column, value=cell.value
+                )
+                if getattr(cell, "has_style", False):
+                    # Copy resolved style objects, not style indices.
+                    target_cell.font = copy.copy(cell.font)  # pyright: ignore[reportAttributeAccessIssue]
+                    target_cell.fill = copy.copy(cell.fill)  # pyright: ignore[reportAttributeAccessIssue]
+                    target_cell.border = copy.copy(cell.border)  # pyright: ignore[reportAttributeAccessIssue]
+                    target_cell.alignment = copy.copy(cell.alignment)  # pyright: ignore[reportAttributeAccessIssue]
+                    target_cell.number_format = cell.number_format
+                    target_cell.protection = copy.copy(cell.protection)  # pyright: ignore[reportAttributeAccessIssue]
+                    try:
+                        target_cell.style = cell.style
+                    except Exception:
+                        pass
+                if getattr(cell, "hyperlink", None):
+                    target_cell._hyperlink = copy.copy(cell._hyperlink)  # type: ignore[attr-defined]
+                if cell.comment:
+                    target_cell.comment = copy.copy(cell.comment)
 
         # Merge ranges
         for merged_range in source_ws.merged_cells.ranges:
             target_ws.merge_cells(str(merged_range))
 
-        # Column widths
+        # Data validations
+        try:
+            if source_ws.data_validations is not None:
+                for dv in source_ws.data_validations.dataValidation:
+                    cloned = copy.copy(dv)
+                    cloned.ranges = list(dv.ranges)
+                    target_ws.add_data_validation(cloned)
+        except Exception:
+            pass
+
+        # Conditional formatting (best-effort)
+        try:
+            if source_ws.conditional_formatting:
+                for key, rules in source_ws.conditional_formatting._cf_rules.items():  # type: ignore[attr-defined]
+                    target_ws.conditional_formatting._cf_rules[key] = copy.deepcopy(  # type: ignore[attr-defined]
+                        rules
+                    )
+        except Exception:
+            pass
+
+        def _copy_dimension_attrs(source_dim: object, dest_dim: object) -> None:
+            # Copy common, non-style attributes; skip workbook-scoped style internals.
+            for attr in (
+                "width",
+                "height",
+                "hidden",
+                "outlineLevel",
+                "collapsed",
+                "bestFit",
+                "customWidth",
+                "customHeight",
+            ):
+                try:
+                    if hasattr(source_dim, attr):
+                        value = getattr(source_dim, attr)
+                        if value is not None:
+                            setattr(dest_dim, attr, value)
+                except Exception:
+                    pass
+
         for column, dimension in source_ws.column_dimensions.items():
-            if getattr(dimension, "width", None):
-                target_ws.column_dimensions[column].width = dimension.width
+            _copy_dimension_attrs(dimension, target_ws.column_dimensions[column])
 
-        # Row heights
         for row, dimension in source_ws.row_dimensions.items():
-            if getattr(dimension, "height", None):
-                target_ws.row_dimensions[row].height = dimension.height
-
-        # Freeze panes
-        target_ws.freeze_panes = source_ws.freeze_panes
-
-        # Auto filter
-        try:
-            target_ws.auto_filter.ref = source_ws.auto_filter.ref
-        except Exception:
-            pass
-
-        # Zoom scale
-        try:
-            target_ws.sheet_view.zoomScale = source_ws.sheet_view.zoomScale
-        except Exception:
-            pass
+            _copy_dimension_attrs(dimension, target_ws.row_dimensions[row])
 
     def _source_identity(
         self, source: SaveTarget | bytes | BinaryIO
@@ -410,6 +509,7 @@ class OpenpyxlEngine(Engine):
             target_ws = self._workbook.copy_worksheet(source_ws)
             target_ws.title = dest_name
         else:
+            self._ensure_named_styles(source_wb)
             target_ws = self._workbook.create_sheet(title=dest_name)
             self._clone_sheet_contents(source_ws, target_ws)
 
