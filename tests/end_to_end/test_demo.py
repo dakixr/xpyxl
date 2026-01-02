@@ -143,9 +143,15 @@ def test_combined_workbook() -> None:
     combined_workbook.save(hybrid_path, engine="hybrid")
     assert hybrid_path.exists(), f"hybrid output file was not created: {hybrid_path}"
 
-    # Verify both files are valid Excel files by checking they exist and have content
+    # Test HTML engine save
+    html_path = output_dir / "combined-output.html"
+    combined_workbook.save(html_path, engine="html")
+    assert html_path.exists(), f"html output file was not created: {html_path}"
+
+    # Verify outputs are valid files by checking they exist and have content
     assert openpyxl_path.stat().st_size > 0, "openpyxl output file is empty"
     assert hybrid_path.stat().st_size > 0, "hybrid output file is empty"
+    assert html_path.stat().st_size > 0, "html output file is empty"
 
 
 if __name__ == "__main__":
