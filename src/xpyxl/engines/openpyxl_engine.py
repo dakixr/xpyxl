@@ -390,6 +390,138 @@ class OpenpyxlEngine(Engine):
         for row, dimension in source_ws.row_dimensions.items():
             _copy_dimension_attrs(dimension, target_ws.row_dimensions[row])
 
+        # Images (photos/pictures)
+        self._copy_images(source_ws, target_ws)
+
+        # Charts
+        self._copy_charts(source_ws, target_ws)
+
+    def _copy_images(self, source_ws: Worksheet, target_ws: Worksheet) -> None:
+        """Copy all images from source worksheet to target worksheet."""
+        try:
+            from openpyxl.drawing.image import Image
+        except ImportError:
+            # Image support not available
+            return
+
+        for img in getattr(source_ws, "_images", []):
+            try:
+                # Get the image data from the ref (BytesIO containing the image data)
+                ref = getattr(img, "ref", None)
+                if ref is None:
+                    continue
+
+                # Seek to start if possible
+                if hasattr(ref, "seek"):
+                    try:
+                        ref.seek(0)
+                    except Exception:
+                        pass
+
+                # Create a new Image instance from the image data
+                new_img = Image(ref)
+
+                # Copy anchor (position in the sheet)
+                anchor = getattr(img, "anchor", None)
+                if anchor is not None:
+                    new_img.anchor = anchor
+
+                # Copy dimensions if set
+                if getattr(img, "width", None) is not None:
+                    new_img.width = img.width
+                if getattr(img, "height", None) is not None:
+                    new_img.height = img.height
+
+                target_ws.add_image(new_img)
+            except Exception:
+                # Image copying is best-effort; skip failures
+                pass
+
+    def _copy_charts(self, source_ws: Worksheet, target_ws: Worksheet) -> None:
+        """Copy all charts from source worksheet to target worksheet.
+
+        When copying charts, we need to update the data references to point
+        to the target sheet instead of the source sheet, since sheet names
+        may differ between source and destination.
+        """
+        source_name = source_ws.title
+        target_name = target_ws.title
+
+        for chart in getattr(source_ws, "_charts", []):
+            try:
+                # Deep copy the chart to avoid sharing references
+                new_chart = copy.deepcopy(chart)
+
+                # Update sheet references in chart data
+                self._update_chart_references(new_chart, source_name, target_name)
+
+                target_ws.add_chart(new_chart)
+            except Exception:
+                # Chart copying is best-effort; skip failures
+                pass
+
+    def _update_chart_references(
+        self, chart: object, old_sheet: str, new_sheet: str
+    ) -> None:
+        """Update all sheet references in a chart from old_sheet to new_sheet."""
+        import re
+
+        def update_ref(formula: str | None) -> str | None:
+            if not formula:
+                return formula
+
+            # Escape special regex chars in old_sheet
+            old_escaped = re.escape(old_sheet)
+
+            # Pattern for quoted sheet name: 'Sheet Name'!
+            quoted_pattern = f"'{old_escaped}'!"
+            # Pattern for unquoted sheet name: SheetName!
+            unquoted_pattern = f"{old_escaped}!"
+
+            # New sheet name (quote if has spaces or special chars)
+            if " " in new_sheet or any(c in new_sheet for c in "'![]:"):
+                new_ref = f"'{new_sheet}'!"
+            else:
+                new_ref = f"{new_sheet}!"
+
+            # Replace quoted version first
+            result = re.sub(quoted_pattern, new_ref, formula)
+            # Then try unquoted version if no change
+            if result == formula:
+                result = re.sub(unquoted_pattern, new_ref, formula)
+
+            return result
+
+        # Update series data references
+        for series in getattr(chart, "series", []):
+            # Value reference (numRef)
+            if hasattr(series, "val") and series.val:
+                num_ref = getattr(series.val, "numRef", None)
+                if num_ref and hasattr(num_ref, "f"):
+                    num_ref.f = update_ref(num_ref.f)
+
+            # Category reference (can be numRef or strRef)
+            if hasattr(series, "cat") and series.cat:
+                cat_num_ref = getattr(series.cat, "numRef", None)
+                if cat_num_ref and hasattr(cat_num_ref, "f"):
+                    cat_num_ref.f = update_ref(cat_num_ref.f)
+
+                cat_str_ref = getattr(series.cat, "strRef", None)
+                if cat_str_ref and hasattr(cat_str_ref, "f"):
+                    cat_str_ref.f = update_ref(cat_str_ref.f)
+
+            # X values (for scatter/bubble charts)
+            if hasattr(series, "xVal") and series.xVal:
+                x_num_ref = getattr(series.xVal, "numRef", None)
+                if x_num_ref and hasattr(x_num_ref, "f"):
+                    x_num_ref.f = update_ref(x_num_ref.f)
+
+            # Y values (for scatter/bubble charts)
+            if hasattr(series, "yVal") and series.yVal:
+                y_num_ref = getattr(series.yVal, "numRef", None)
+                if y_num_ref and hasattr(y_num_ref, "f"):
+                    y_num_ref.f = update_ref(y_num_ref.f)
+
     def _load_source_workbook(self, source: SaveTarget | bytes | BinaryIO) -> Workbook:
         if isinstance(source, (str, Path)):
             return load_workbook(
