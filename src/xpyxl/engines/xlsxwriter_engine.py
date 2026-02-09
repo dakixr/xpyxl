@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime, time, timedelta
 from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, BinaryIO
@@ -186,6 +187,8 @@ class XlsxWriterEngine(Engine):
             self._current_sheet.write_blank(row_idx, col_idx, None, fmt)
         elif isinstance(value, bool):
             self._current_sheet.write_boolean(row_idx, col_idx, value, fmt)
+        elif isinstance(value, (date, datetime, time, timedelta)):
+            self._current_sheet.write(row_idx, col_idx, value, fmt)
         elif isinstance(value, (int, float)):
             self._current_sheet.write_number(row_idx, col_idx, value, fmt)
         else:
