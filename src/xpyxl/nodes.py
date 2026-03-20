@@ -29,6 +29,8 @@ CellValue: TypeAlias = object
 class CellNode:
     value: CellValue
     styles: tuple[Style, ...] = ()
+    colspan: int = 1
+    rowspan: int = 1
 
 
 @dataclass(frozen=True)

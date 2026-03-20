@@ -168,8 +168,30 @@ class _BuilderBase:
 
 
 class CellBuilder(_BuilderBase):
+    def __init__(
+        self,
+        *,
+        styles: Sequence[Style] | None = None,
+        colspan: int = 1,
+        rowspan: int = 1,
+    ) -> None:
+        super().__init__(styles=styles)
+        if colspan < 1:
+            msg = "Cell colspan must be >= 1"
+            raise ValueError(msg)
+        if rowspan < 1:
+            msg = "Cell rowspan must be >= 1"
+            raise ValueError(msg)
+        self._colspan = colspan
+        self._rowspan = rowspan
+
     def __getitem__(self, value: CellSource) -> CellNode:
-        return CellNode(value=value, styles=self._styles)
+        return CellNode(
+            value=value,
+            styles=self._styles,
+            colspan=self._colspan,
+            rowspan=self._rowspan,
+        )
 
 
 class RowBuilder(_BuilderBase):
@@ -275,8 +297,13 @@ class WorkbookBuilder:
         return Workbook(node)
 
 
-def cell(*, style: Sequence[Style] | None = None) -> CellBuilder:
-    return CellBuilder(styles=style)
+def cell(
+    *,
+    style: Sequence[Style] | None = None,
+    colspan: int = 1,
+    rowspan: int = 1,
+) -> CellBuilder:
+    return CellBuilder(styles=style, colspan=colspan, rowspan=rowspan)
 
 
 def row(*, style: Sequence[Style] | None = None) -> RowBuilder:

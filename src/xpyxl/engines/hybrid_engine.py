@@ -58,6 +58,27 @@ class HybridEngine(Engine):
         """Write a cell value, delegating to xlsxwriter."""
         self._xlsx_engine.write_cell(row, col, value, style, border_fallback_color)
 
+    def write_merged_cell(
+        self,
+        row: int,
+        col: int,
+        rowspan: int,
+        colspan: int,
+        value: object,
+        style: EffectiveStyle,
+        border_fallback_color: str,
+    ) -> None:
+        """Write a merged cell, delegating to xlsxwriter."""
+        self._xlsx_engine.write_merged_cell(
+            row,
+            col,
+            rowspan,
+            colspan,
+            value,
+            style,
+            border_fallback_color,
+        )
+
     def set_column_width(self, col: int, width: float) -> None:
         """Set column width, delegating to xlsxwriter."""
         self._xlsx_engine.set_column_width(col, width)

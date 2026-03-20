@@ -85,6 +85,30 @@ class Engine(ABC):
         ...
 
     @abstractmethod
+    def write_merged_cell(
+        self,
+        row: int,
+        col: int,
+        rowspan: int,
+        colspan: int,
+        value: object,
+        style: EffectiveStyle,
+        border_fallback_color: str,
+    ) -> None:
+        """Write a merged cell anchored at the given row/column.
+
+        Args:
+            row: 1-based anchor row index
+            col: 1-based anchor column index
+            rowspan: Number of rows in the merged range
+            colspan: Number of columns in the merged range
+            value: The anchor cell value
+            style: Resolved style to apply
+            border_fallback_color: Default border color if not specified in style
+        """
+        ...
+
+    @abstractmethod
     def set_column_width(self, col: int, width: float) -> None:
         """Set the width of a column.
 

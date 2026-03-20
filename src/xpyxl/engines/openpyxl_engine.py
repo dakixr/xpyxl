@@ -73,6 +73,33 @@ class OpenpyxlEngine(Engine):
         cell.value = value  # type: ignore[assignment]
         self._apply_style(cell, style, border_fallback_color)
 
+    def write_merged_cell(
+        self,
+        row: int,
+        col: int,
+        rowspan: int,
+        colspan: int,
+        value: object,
+        style: EffectiveStyle,
+        border_fallback_color: str,
+    ) -> None:
+        if rowspan == 1 and colspan == 1:
+            self.write_cell(row, col, value, style, border_fallback_color)
+            return
+
+        if self._current_sheet is None:
+            raise RuntimeError("No sheet created. Call create_sheet() first.")
+
+        cell = self._current_sheet.cell(row=row, column=col)
+        cell.value = value  # type: ignore[assignment]
+        self._apply_style(cell, style, border_fallback_color)
+        self._current_sheet.merge_cells(
+            start_row=row,
+            start_column=col,
+            end_row=row + rowspan - 1,
+            end_column=col + colspan - 1,
+        )
+
     def _get_cached_color(self, color: str) -> str:
         """Get cached ARGB color or convert and cache it."""
         if color not in self._color_cache:

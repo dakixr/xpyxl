@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import BinaryIO
 
 from openpyxl import load_workbook
+from openpyxl.cell.cell import MergedCell
 
 from ..styles import BorderStyleName, normalize_hex
 from .base import EffectiveStyle, Engine, SaveTarget
@@ -36,6 +37,8 @@ class _CellData:
 class _SheetData:
     name: str
     cells: dict[tuple[int, int], _CellData] = field(default_factory=dict)
+    merges: dict[tuple[int, int], tuple[int, int]] = field(default_factory=dict)
+    covered_cells: set[tuple[int, int]] = field(default_factory=set)
     col_widths: dict[int, float] = field(default_factory=dict)
     row_heights: dict[int, float] = field(default_factory=dict)
     background_color: str | None = None
@@ -75,6 +78,31 @@ class HtmlEngine(Engine):
         sheet.max_row = max(sheet.max_row, row)
         sheet.max_col = max(sheet.max_col, col)
 
+    def write_merged_cell(
+        self,
+        row: int,
+        col: int,
+        rowspan: int,
+        colspan: int,
+        value: object,
+        style: EffectiveStyle,
+        border_fallback_color: str,
+    ) -> None:
+        sheet = self._require_sheet()
+        sheet.cells[(row, col)] = _CellData(
+            value=value,
+            style=style,
+            border_fallback_color=normalize_hex(border_fallback_color),
+        )
+        sheet.merges[(row, col)] = (rowspan, colspan)
+        for row_idx in range(row, row + rowspan):
+            for col_idx in range(col, col + colspan):
+                if row_idx == row and col_idx == col:
+                    continue
+                sheet.covered_cells.add((row_idx, col_idx))
+        sheet.max_row = max(sheet.max_row, row + rowspan - 1)
+        sheet.max_col = max(sheet.max_col, col + colspan - 1)
+
     def set_column_width(self, col: int, width: float) -> None:
         sheet = self._require_sheet()
         sheet.col_widths[col] = width
@@ -101,11 +129,30 @@ class HtmlEngine(Engine):
 
         self.create_sheet(dest_name)
         sheet = self._require_sheet()
+        merge_anchors: set[tuple[int, int]] = set()
+
+        for merged_range in source_ws.merged_cells.ranges:
+            min_col, min_row, max_col, max_row = merged_range.bounds
+            sheet.merges[(min_row, min_col)] = (
+                max_row - min_row + 1,
+                max_col - min_col + 1,
+            )
+            merge_anchors.add((min_row, min_col))
+            for row_idx in range(min_row, max_row + 1):
+                for col_idx in range(min_col, max_col + 1):
+                    if row_idx == min_row and col_idx == min_col:
+                        continue
+                    sheet.covered_cells.add((row_idx, col_idx))
+            sheet.max_row = max(sheet.max_row, max_row)
+            sheet.max_col = max(sheet.max_col, max_col)
 
         for row in source_ws.iter_rows():
             for cell in row:
-                if cell.value is None and not getattr(cell, "has_style", False):
+                if isinstance(cell, MergedCell):
                     continue
+                if cell.value is None and not getattr(cell, "has_style", False):
+                    if (cell.row, cell.column) not in merge_anchors:
+                        continue
                 if cell.row is None or cell.column is None:
                     continue
                 effective = self._openpyxl_cell_to_effective_style(cell)
@@ -276,7 +323,10 @@ class HtmlEngine(Engine):
             cells_html: list[str] = []
             row_height = sheet.row_heights.get(row)
             for col in range(1, max_col + 1):
+                if (row, col) in sheet.covered_cells:
+                    continue
                 cell_data = sheet.cells.get((row, col))
+                rowspan, colspan = sheet.merges.get((row, col), (1, 1))
                 if cell_data:
                     classes, inline_css = self._style_to_css(
                         cell_data.style, cell_data.border_fallback_color
@@ -286,10 +336,17 @@ class HtmlEngine(Engine):
                     classes = ""
                     inline_css = ""
                     value = ""
+                span_attrs: list[str] = []
+                if rowspan > 1:
+                    span_attrs.append(f'rowspan="{rowspan}"')
+                if colspan > 1:
+                    span_attrs.append(f'colspan="{colspan}"')
+                span_markup = f" {' '.join(span_attrs)}" if span_attrs else ""
                 cells_html.append(
-                    "<td class=\"{classes}\" style=\"{style}\">{value}</td>".format(
+                    "<td class=\"{classes}\" style=\"{style}\"{span}>{value}</td>".format(
                         classes=classes,
                         style=inline_css,
+                        span=span_markup,
                         value=escape(value),
                     )
                 )

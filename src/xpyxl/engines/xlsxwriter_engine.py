@@ -194,6 +194,33 @@ class XlsxWriterEngine(Engine):
         else:
             self._current_sheet.write_string(row_idx, col_idx, str(value), fmt)
 
+    def write_merged_cell(
+        self,
+        row: int,
+        col: int,
+        rowspan: int,
+        colspan: int,
+        value: object,
+        style: EffectiveStyle,
+        border_fallback_color: str,
+    ) -> None:
+        if rowspan == 1 and colspan == 1:
+            self.write_cell(row, col, value, style, border_fallback_color)
+            return
+
+        if self._current_sheet is None:
+            raise RuntimeError("No sheet created. Call create_sheet() first.")
+
+        fmt = self._get_format(style, border_fallback_color)
+        self._current_sheet.merge_range(
+            row - 1,
+            col - 1,
+            row + rowspan - 2,
+            col + colspan - 2,
+            value,
+            fmt,
+        )
+
     def set_column_width(self, col: int, width: float) -> None:
         if self._current_sheet is None:
             raise RuntimeError("No sheet created. Call create_sheet() first.")

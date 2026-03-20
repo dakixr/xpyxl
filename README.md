@@ -90,12 +90,30 @@ Engine support for `import_sheet`:
 x.row(style=[x.bold, x.bg_warning])[1, 2, 3, 4, 5]
 x.col(style=[x.italic])["a", "b", "c"]
 x.cell(style=[x.text_green, x.number_precision])[42100]
+x.cell(style=[x.bold], colspan=3)["Quarterly Summary"]
+x.cell(rowspan=2)["Region"]
 ```
 
 - `row[...]` accepts any sequence (numbers, strings, dataclasses…)
 - `col[...]` stacks values vertically
 - `cell[...]` wraps a single scalar
+- `cell(...)` also accepts `colspan=` and `rowspan=` for generated merged cells
 - All primitives accept `style=[...]`
+
+Generated merged cells work in `hybrid`, `openpyxl`, `xlsxwriter`, and HTML output. Merges are anchored on the `cell(...)` call:
+
+```python
+hero = x.row()[
+    x.cell(style=[x.text_xl, x.bold, x.text_center], colspan=3)["Q3 Sales Overview"]
+]
+
+detail = x.vstack(
+    x.row()[x.cell(rowspan=2)["Region"], "Q1", "Q2"],
+    x.row()["EMEA", 1200, 1300],
+)
+```
+
+Raw scalar values inside `row()[...]` remain normal `1x1` cells. Wrap a value with `x.cell(...)` when it should merge.
 
 ## Component: `table`
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Literal, assert_never
 
 from .engines.base import EffectiveStyle, Engine
@@ -10,7 +11,6 @@ from .nodes import (
     ColumnNode,
     HorizontalStackNode,
     ImportedSheetNode,
-    RenderableItem,
     RowNode,
     SheetComponent,
     SheetNode,
@@ -46,36 +46,126 @@ DEFAULT_TABLE_COMPACT_HEIGHT = 18.0
 DEFAULT_BACKGROUND_MIN_ROWS = 200
 DEFAULT_BACKGROUND_MIN_COLS = 80
 
-
-class _Size:
-    __slots__ = ("width", "height")
-
-    def __init__(self, width: int, height: int) -> None:
-        self.width = width
-        self.height = height
-
-
 _Axis = Literal["vertical", "horizontal"]
 
 
-class _Placement:
-    __slots__ = ("row", "col", "item", "styles", "size", "direction")
+@dataclass(frozen=True)
+class _PlacedCell:
+    row: int
+    col: int
+    value: object
+    styles: tuple[Style, ...]
+    colspan: int
+    rowspan: int
+    prefer_height: float | None = None
 
-    def __init__(
+
+@dataclass(frozen=True)
+class _PlacedSpacer:
+    row: int
+    col: int
+    rows: int
+    height: float | None
+    direction: _Axis
+
+
+class _GridPlan:
+    __slots__ = ("cells", "spacers", "_occupied", "max_row", "max_col")
+
+    def __init__(self) -> None:
+        self.cells: list[_PlacedCell] = []
+        self.spacers: list[_PlacedSpacer] = []
+        self._occupied: set[tuple[int, int]] = set()
+        self.max_row = 0
+        self.max_col = 0
+
+    def is_clear(self, row: int, col: int, rowspan: int, colspan: int) -> bool:
+        for row_idx in range(row, row + rowspan):
+            for col_idx in range(col, col + colspan):
+                if (row_idx, col_idx) in self._occupied:
+                    return False
+        return True
+
+    def add_cell(
         self,
         row: int,
         col: int,
-        item: RenderableItem,
+        value: object,
         styles: tuple[Style, ...],
-        size: _Size,
+        *,
+        colspan: int = 1,
+        rowspan: int = 1,
+        prefer_height: float | None = None,
+    ) -> None:
+        if not self.is_clear(row, col, rowspan, colspan):
+            msg = "Merged cells cannot overlap existing content"
+            raise ValueError(msg)
+
+        self.cells.append(
+            _PlacedCell(
+                row=row,
+                col=col,
+                value=value,
+                styles=styles,
+                colspan=colspan,
+                rowspan=rowspan,
+                prefer_height=prefer_height,
+            )
+        )
+        for row_idx in range(row, row + rowspan):
+            for col_idx in range(col, col + colspan):
+                self._occupied.add((row_idx, col_idx))
+        self.max_row = max(self.max_row, row + rowspan - 1)
+        self.max_col = max(self.max_col, col + colspan - 1)
+
+    def add_spacer(
+        self,
+        row: int,
+        col: int,
+        *,
+        rows: int,
+        height: float | None,
         direction: _Axis,
     ) -> None:
-        self.row = row
-        self.col = col
-        self.item = item
-        self.styles = styles
-        self.size = size
-        self.direction = direction
+        self.spacers.append(
+            _PlacedSpacer(
+                row=row,
+                col=col,
+                rows=rows,
+                height=height,
+                direction=direction,
+            )
+        )
+        if direction == "horizontal":
+            self.max_row = max(self.max_row, row)
+            self.max_col = max(self.max_col, col + rows - 1)
+        else:
+            self.max_row = max(self.max_row, row + rows - 1)
+            self.max_col = max(self.max_col, col)
+
+    def merge(self, other: _GridPlan, *, row: int, col: int) -> None:
+        for placement in other.cells:
+            self.add_cell(
+                row + placement.row - 1,
+                col + placement.col - 1,
+                placement.value,
+                placement.styles,
+                colspan=placement.colspan,
+                rowspan=placement.rowspan,
+                prefer_height=placement.prefer_height,
+            )
+        for spacer in other.spacers:
+            self.add_spacer(
+                row + spacer.row - 1,
+                col + spacer.col - 1,
+                rows=spacer.rows,
+                height=spacer.height,
+                direction=spacer.direction,
+            )
+        if other.max_row > 0:
+            self.max_row = max(self.max_row, row + other.max_row - 1)
+        if other.max_col > 0:
+            self.max_col = max(self.max_col, col + other.max_col - 1)
 
 
 def _resolve(styles: Sequence[Style]) -> EffectiveStyle:
@@ -138,13 +228,13 @@ def _default_row_height() -> float:
 
 
 def _estimate_wrap_lines(text: str) -> int:
-    WRAP_LINE_LENGTH = 30
+    wrap_line_length = 30
     if not text:
         return 1
     lines = 0
     for raw_line in text.splitlines() or [text]:
         length = max(len(raw_line), 1)
-        lines += max(1, math.ceil(length / WRAP_LINE_LENGTH))
+        lines += max(1, math.ceil(length / wrap_line_length))
     return max(lines, 1)
 
 
@@ -156,24 +246,31 @@ def _update_dimensions(
     row_index: int,
     value: object,
     style: EffectiveStyle,
+    colspan: int = 1,
+    rowspan: int = 1,
     prefer_height: float | None = None,
 ) -> None:
     text = "" if value is None else str(value)
     font_scale = style.font_size / DEFAULT_FONT_SIZE if style.font_size else 1.0
     width_hint = max(len(text), 1.0)
-    existing_width = col_widths.get(column_index, 0.0)
+    existing_total_width = sum(
+        col_widths.get(col_idx, 0.0)
+        for col_idx in range(column_index, column_index + colspan)
+    )
     if style.row_width is not None:
-        width_hint = style.row_width
+        total_width = style.row_width
     elif not style.auto_width:
-        width_hint = existing_width if existing_width else 8.0
+        total_width = existing_total_width if existing_total_width else 8.0 * colspan
     elif style.wrap_text:
-        width_hint = existing_width or 8.0
-    width_hint *= font_scale
-    width_hint += 1.0
-    col_widths[column_index] = max(existing_width, width_hint)
+        total_width = existing_total_width or 8.0 * colspan
+    else:
+        total_width = width_hint * font_scale + 1.0
+    per_column_width = total_width / colspan
+    for col_idx in range(column_index, column_index + colspan):
+        col_widths[col_idx] = max(col_widths.get(col_idx, 0.0), per_column_width)
 
     if style.row_height is not None:
-        base_height = style.row_height
+        per_row_height = style.row_height
     else:
         base_height = (
             prefer_height if prefer_height is not None else _default_row_height()
@@ -182,95 +279,135 @@ def _update_dimensions(
             base_height *= _estimate_wrap_lines(text)
         base_height *= font_scale
         base_height += 2.0
-    row_heights[row_index] = max(row_heights.get(row_index, 0.0), base_height)
+        per_row_height = base_height / rowspan
+    for row_idx in range(row_index, row_index + rowspan):
+        row_heights[row_idx] = max(row_heights.get(row_idx, 0.0), per_row_height)
 
 
-def _render_row(
-    engine: Engine,
+def _find_next_clear_col(
+    plan: _GridPlan,
+    *,
+    row: int,
+    start_col: int,
+    rowspan: int,
+    colspan: int,
+) -> int:
+    candidate = max(start_col, 1)
+    while not plan.is_clear(row, candidate, rowspan, colspan):
+        candidate += 1
+    return candidate
+
+
+def _find_next_clear_row(
+    plan: _GridPlan,
+    *,
+    start_row: int,
+    col: int,
+    rowspan: int,
+    colspan: int,
+) -> int:
+    candidate = max(start_row, 1)
+    while not plan.is_clear(candidate, col, rowspan, colspan):
+        candidate += 1
+    return candidate
+
+
+def _place_row_node(
+    plan: _GridPlan,
     node: RowNode,
-    start_row: int,
-    start_col: int,
-    col_widths: dict[int, float],
-    row_heights: dict[int, float],
-    extra_styles: tuple[Style, ...] = (),
+    *,
+    row: int,
+    extra_styles: tuple[Style, ...],
 ) -> None:
-    row_index = start_row
-    for column_offset, cell_node in enumerate(node.cells, start=1):
-        styles = (*extra_styles, *node.styles, *cell_node.styles)
-        effective = _resolve(styles)
-        column_index = start_col + column_offset - 1
-        engine.write_cell(
-            row_index, column_index, cell_node.value, effective, DEFAULT_BORDER_COLOR
-        )
-        _update_dimensions(
-            col_widths=col_widths,
-            row_heights=row_heights,
-            column_index=column_index,
-            row_index=row_index,
-            value=cell_node.value,
-            style=effective,
-        )
-
-
-def _render_column(
-    engine: Engine,
-    node: ColumnNode,
-    start_row: int,
-    start_col: int,
-    col_widths: dict[int, float],
-    row_heights: dict[int, float],
-    extra_styles: tuple[Style, ...] = (),
-) -> None:
-    row_index = start_row
+    cursor = 1
     for cell_node in node.cells:
-        styles = (*extra_styles, *node.styles, *cell_node.styles)
-        effective = _resolve(styles)
-        engine.write_cell(
-            row_index, start_col, cell_node.value, effective, DEFAULT_BORDER_COLOR
+        column_index = _find_next_clear_col(
+            plan,
+            row=row,
+            start_col=cursor,
+            rowspan=cell_node.rowspan,
+            colspan=cell_node.colspan,
         )
-        _update_dimensions(
-            col_widths=col_widths,
-            row_heights=row_heights,
-            column_index=start_col,
-            row_index=row_index,
-            value=cell_node.value,
-            style=effective,
+        plan.add_cell(
+            row,
+            column_index,
+            cell_node.value,
+            (*extra_styles, *node.styles, *cell_node.styles),
+            colspan=cell_node.colspan,
+            rowspan=cell_node.rowspan,
         )
-        row_index += 1
+        cursor = column_index + cell_node.colspan
 
 
-def _render_cell(
-    engine: Engine,
+def _place_column_node(
+    plan: _GridPlan,
+    node: ColumnNode,
+    *,
+    col: int,
+    extra_styles: tuple[Style, ...],
+) -> None:
+    cursor = 1
+    for cell_node in node.cells:
+        row_index = _find_next_clear_row(
+            plan,
+            start_row=cursor,
+            col=col,
+            rowspan=cell_node.rowspan,
+            colspan=cell_node.colspan,
+        )
+        plan.add_cell(
+            row_index,
+            col,
+            cell_node.value,
+            (*extra_styles, *node.styles, *cell_node.styles),
+            colspan=cell_node.colspan,
+            rowspan=cell_node.rowspan,
+        )
+        cursor = row_index + 1
+
+
+def _place_single_cell(
+    plan: _GridPlan,
     node: CellNode,
-    row_index: int,
-    column_index: int,
-    col_widths: dict[int, float],
-    row_heights: dict[int, float],
-    extra_styles: tuple[Style, ...] = (),
+    *,
+    row: int,
+    extra_styles: tuple[Style, ...],
 ) -> None:
-    effective = _resolve((*extra_styles, *node.styles))
-    engine.write_cell(
-        row_index, column_index, node.value, effective, DEFAULT_BORDER_COLOR
+    column_index = _find_next_clear_col(
+        plan,
+        row=row,
+        start_col=1,
+        rowspan=node.rowspan,
+        colspan=node.colspan,
     )
-    _update_dimensions(
-        col_widths=col_widths,
-        row_heights=row_heights,
-        column_index=column_index,
-        row_index=row_index,
-        value=node.value,
-        style=effective,
+    plan.add_cell(
+        row,
+        column_index,
+        node.value,
+        (*extra_styles, *node.styles),
+        colspan=node.colspan,
+        rowspan=node.rowspan,
     )
 
 
-def _render_table(
-    engine: Engine,
-    node: TableNode,
-    start_row: int,
-    start_col: int,
-    col_widths: dict[int, float],
-    row_heights: dict[int, float],
-    extra_styles: tuple[Style, ...] = (),
-) -> None:
+def _table_has_merged_cells(node: TableNode) -> bool:
+    if node.header and any(
+        cell.colspan > 1 or cell.rowspan > 1 for cell in node.header.cells
+    ):
+        return True
+    return any(
+        cell.colspan > 1 or cell.rowspan > 1
+        for row in node.rows
+        for cell in row.cells
+    )
+
+
+def _build_table_plan(node: TableNode, extra_styles: tuple[Style, ...]) -> _GridPlan:
+    if _table_has_merged_cells(node):
+        msg = "Merged cells are not supported inside tables"
+        raise ValueError(msg)
+
+    plan = _GridPlan()
     table_style = combine_styles((*extra_styles, *node.styles))
     banded = table_style.table_banded if table_style.table_banded is not None else False
     bordered = (
@@ -294,35 +431,28 @@ def _render_table(
     stripe_style = Style(fill_color=DEFAULT_TABLE_STRIPE_COLOR) if banded else None
     compact_height = DEFAULT_TABLE_COMPACT_HEIGHT if compact else None
 
-    current_row = start_row
+    current_row = 1
 
-    def render(
+    def add_row(
         row_node: RowNode,
         *,
-        extra: Sequence[Style] = (),
+        extras: Sequence[Style] = (),
         prefer_height: float | None = None,
-        extra_first: bool = False,
+        extras_first: bool = False,
     ) -> None:
         for column_offset, cell_node in enumerate(row_node.cells, start=1):
             base_chain = (*extra_styles, *node.styles)
-            if extra_first:
-                style_chain = (*base_chain, *extra, *row_node.styles, *cell_node.styles)
+            if extras_first:
+                style_chain = (*base_chain, *extras, *row_node.styles, *cell_node.styles)
             else:
-                style_chain = (*base_chain, *row_node.styles, *extra, *cell_node.styles)
+                style_chain = (*base_chain, *row_node.styles, *extras, *cell_node.styles)
             if table_border_style:
                 style_chain = (*style_chain, table_border_style)
-            effective = _resolve(style_chain)
-            column_index = start_col + column_offset - 1
-            engine.write_cell(
-                current_row, column_index, cell_node.value, effective, border_color
-            )
-            _update_dimensions(
-                col_widths=col_widths,
-                row_heights=row_heights,
-                column_index=column_index,
-                row_index=current_row,
-                value=cell_node.value,
-                style=effective,
+            plan.add_cell(
+                current_row,
+                column_offset,
+                cell_node.value,
+                style_chain,
                 prefer_height=prefer_height,
             )
 
@@ -332,11 +462,11 @@ def _render_table(
             header_extras.append(Style(fill_color=DEFAULT_TABLE_HEADER_BG))
         if DEFAULT_TABLE_HEADER_TEXT:
             header_extras.append(Style(text_color=DEFAULT_TABLE_HEADER_TEXT))
-        render(
+        add_row(
             node.header,
-            extra=header_extras,
+            extras=header_extras,
             prefer_height=compact_height,
-            extra_first=True,
+            extras_first=True,
         )
         current_row += 1
 
@@ -344,145 +474,172 @@ def _render_table(
         extras: list[Style] = []
         if stripe_style and idx % 2 == 1:
             extras.append(stripe_style)
-        render(row_node, extra=extras, prefer_height=compact_height)
+        add_row(row_node, extras=extras, prefer_height=compact_height)
         current_row += 1
 
-
-def _table_size(node: TableNode) -> _Size:
-    width = 0
-    height = 0
-    if node.header:
-        width = max(width, len(node.header.cells))
-        height += 1
-    for row in node.rows:
-        width = max(width, len(row.cells))
-        height += 1
-    return _Size(width=width, height=height)
+    return plan
 
 
-def _layout_item(
-    item: SheetComponent,
-    start_row: int,
-    start_col: int,
-    inherited_styles: tuple[Style, ...] = (),
-    direction: _Axis = "vertical",
-) -> tuple[list[_Placement], _Size]:
-    if isinstance(item, CellNode):
-        size = _Size(width=1, height=1)
-        return (
-            [
-                _Placement(
-                    row=start_row,
-                    col=start_col,
-                    item=item,
-                    styles=inherited_styles,
-                    size=size,
-                    direction=direction,
-                )
-            ],
-            size,
-        )
-    elif isinstance(item, RowNode):
-        size = _Size(width=len(item.cells), height=1)
-        return (
-            [
-                _Placement(
-                    row=start_row,
-                    col=start_col,
-                    item=item,
-                    styles=inherited_styles,
-                    size=size,
-                    direction=direction,
-                )
-            ],
-            size,
-        )
-    elif isinstance(item, ColumnNode):
-        size = _Size(width=1, height=len(item.cells))
-        return (
-            [
-                _Placement(
-                    row=start_row,
-                    col=start_col,
-                    item=item,
-                    styles=inherited_styles,
-                    size=size,
-                    direction=direction,
-                )
-            ],
-            size,
-        )
-    elif isinstance(item, TableNode):
-        size = _table_size(item)
-        return (
-            [
-                _Placement(
-                    row=start_row,
-                    col=start_col,
-                    item=item,
-                    styles=inherited_styles,
-                    size=size,
-                    direction=direction,
-                )
-            ],
-            size,
-        )
-    elif isinstance(item, SpacerNode):
-        if direction == "horizontal":
-            size = _Size(width=item.rows, height=1)
+def _build_horizontal_plan(
+    items: Sequence[SheetComponent],
+    *,
+    extra_styles: tuple[Style, ...],
+    gap: int,
+) -> _GridPlan:
+    plan = _GridPlan()
+    col_cursor = 1
+    for idx, child in enumerate(items):
+        if isinstance(child, SpacerNode):
+            plan.add_spacer(
+                1,
+                col_cursor,
+                rows=child.rows,
+                height=child.height,
+                direction="horizontal",
+            )
+            col_cursor += child.rows
         else:
-            size = _Size(width=1, height=item.rows)
-        return (
-            [
-                _Placement(
-                    row=start_row,
-                    col=start_col,
-                    item=item,
-                    styles=inherited_styles,
-                    size=size,
-                    direction=direction,
-                )
-            ],
-            size,
+            child_plan = _build_item_plan(child, extra_styles=extra_styles)
+            plan.merge(child_plan, row=1, col=col_cursor)
+            col_cursor += _logical_width(child)
+        if idx < len(items) - 1:
+            col_cursor += gap
+    return plan
+
+
+def _build_vertical_plan(
+    items: Sequence[SheetComponent],
+    *,
+    extra_styles: tuple[Style, ...],
+    gap: int,
+) -> _GridPlan:
+    plan = _GridPlan()
+    row_cursor = 1
+    for idx, child in enumerate(items):
+        if isinstance(child, CellNode):
+            _place_single_cell(plan, child, row=row_cursor, extra_styles=extra_styles)
+            row_cursor += 1
+        elif isinstance(child, RowNode):
+            _place_row_node(plan, child, row=row_cursor, extra_styles=extra_styles)
+            row_cursor += 1
+        elif isinstance(child, SpacerNode):
+            plan.add_spacer(
+                row_cursor,
+                1,
+                rows=child.rows,
+                height=child.height,
+                direction="vertical",
+            )
+            row_cursor += child.rows
+        else:
+            child_plan = _build_item_plan(child, extra_styles=extra_styles)
+            plan.merge(child_plan, row=row_cursor, col=1)
+            row_cursor += _logical_height(child)
+        if idx < len(items) - 1:
+            row_cursor += gap
+    return plan
+
+
+def _logical_width(item: SheetComponent) -> int:
+    if isinstance(item, CellNode):
+        return 1
+    if isinstance(item, RowNode):
+        return len(item.cells)
+    if isinstance(item, ColumnNode):
+        return 1
+    if isinstance(item, TableNode):
+        width = 0
+        if item.header:
+            width = max(width, len(item.header.cells))
+        for row in item.rows:
+            width = max(width, len(row.cells))
+        return width
+    if isinstance(item, SpacerNode):
+        return 1
+    if isinstance(item, VerticalStackNode):
+        return max(_logical_width(child) for child in item.items)
+    if isinstance(item, HorizontalStackNode):
+        total = sum(_logical_width(child) for child in item.items)
+        total += item.gap * (len(item.items) - 1)
+        return total
+    assert_never(item)
+
+
+def _logical_height(item: SheetComponent) -> int:
+    if isinstance(item, CellNode):
+        return 1
+    if isinstance(item, RowNode):
+        return 1
+    if isinstance(item, ColumnNode):
+        return len(item.cells)
+    if isinstance(item, TableNode):
+        return len(item.rows) + (1 if item.header else 0)
+    if isinstance(item, SpacerNode):
+        return item.rows
+    if isinstance(item, VerticalStackNode):
+        total = sum(_logical_height(child) for child in item.items)
+        total += item.gap * (len(item.items) - 1)
+        return total
+    if isinstance(item, HorizontalStackNode):
+        return max(_logical_height(child) for child in item.items)
+    assert_never(item)
+
+
+def _build_item_plan(
+    item: SheetComponent,
+    *,
+    extra_styles: tuple[Style, ...] = (),
+) -> _GridPlan:
+    if isinstance(item, CellNode):
+        plan = _GridPlan()
+        plan.add_cell(
+            1,
+            1,
+            item.value,
+            (*extra_styles, *item.styles),
+            colspan=item.colspan,
+            rowspan=item.rowspan,
         )
-    elif isinstance(item, VerticalStackNode):
-        combined_styles = inherited_styles + item.styles
-        placements: list[_Placement] = []  # pyright: ignore[reportRedeclaration]
-        row_cursor = start_row
-        max_width = 0
-        for idx, child in enumerate(item.items):
-            child_placements, child_size = _layout_item(
-                child, row_cursor, start_col, combined_styles, direction="vertical"
-            )
-            placements.extend(child_placements)
-            row_cursor += child_size.height
-            if idx < len(item.items) - 1:
-                row_cursor += item.gap
-            max_width = max(max_width, child_size.width)
-        height = row_cursor - start_row
-        return placements, _Size(width=max_width, height=height)
-    elif isinstance(item, HorizontalStackNode):
-        combined_styles = inherited_styles + item.styles
-        placements: list[_Placement] = []
-        col_cursor = start_col
-        max_height = 0
-        for idx, child in enumerate(item.items):
-            child_placements, child_size = _layout_item(
-                child, start_row, col_cursor, combined_styles, direction="horizontal"
-            )
-            placements.extend(child_placements)
-            col_cursor += child_size.width
-            if idx < len(item.items) - 1:
-                col_cursor += item.gap
-            max_height = max(max_height, child_size.height)
-        width = col_cursor - start_col
-        return placements, _Size(width=width, height=max_height)
-    else:
-        assert_never(item)
+        return plan
+    if isinstance(item, RowNode):
+        plan = _GridPlan()
+        _place_row_node(plan, item, row=1, extra_styles=extra_styles)
+        return plan
+    if isinstance(item, ColumnNode):
+        plan = _GridPlan()
+        _place_column_node(plan, item, col=1, extra_styles=extra_styles)
+        return plan
+    if isinstance(item, TableNode):
+        return _build_table_plan(item, extra_styles)
+    if isinstance(item, SpacerNode):
+        plan = _GridPlan()
+        plan.add_spacer(
+            1,
+            1,
+            rows=item.rows,
+            height=item.height,
+            direction="vertical",
+        )
+        return plan
+    if isinstance(item, VerticalStackNode):
+        return _build_vertical_plan(
+            item.items,
+            extra_styles=extra_styles + item.styles,
+            gap=item.gap,
+        )
+    if isinstance(item, HorizontalStackNode):
+        return _build_horizontal_plan(
+            item.items,
+            extra_styles=extra_styles + item.styles,
+            gap=item.gap,
+        )
+    assert_never(item)
 
 
 def _apply_dimensions(
-    engine: Engine, col_widths: Mapping[int, float], row_heights: Mapping[int, float]
+    engine: Engine,
+    col_widths: Mapping[int, float],
+    row_heights: Mapping[int, float],
 ) -> None:
     for column_index, width in col_widths.items():
         engine.set_column_width(column_index, width)
@@ -491,12 +648,7 @@ def _apply_dimensions(
 
 
 def render_sheet(engine: Engine, node: SheetNode | ImportedSheetNode) -> None:
-    """Render a sheet node using the given engine.
-
-    Args:
-        engine: The rendering engine to use
-        node: The sheet node to render
-    """
+    """Render a sheet node using the given engine."""
     if isinstance(node, ImportedSheetNode):
         engine.copy_sheet(node.source, node.source_sheet, node.name)
         return
@@ -505,20 +657,10 @@ def render_sheet(engine: Engine, node: SheetNode | ImportedSheetNode) -> None:
 
     col_widths: dict[int, float] = {}
     row_heights: dict[int, float] = {}
-    placements: list[_Placement] = []
-    row_cursor = 1
-    max_col = 0
+    plan = _build_vertical_plan(node.items, extra_styles=(), gap=0)
 
-    for item in node.items:
-        item_placements, size = _layout_item(item, row_cursor, 1, direction="vertical")
-        placements.extend(item_placements)
-        row_cursor += size.height
-        max_col = max(max_col, size.width)
-
-    max_row = 0
-    for placement in placements:
-        max_row = max(max_row, placement.row + placement.size.height - 1)
-        max_col = max(max_col, placement.col + placement.size.width - 1)
+    max_row = plan.max_row
+    max_col = plan.max_col
 
     if node.background_color:
         normalized = normalize_hex(node.background_color)
@@ -526,58 +668,44 @@ def render_sheet(engine: Engine, node: SheetNode | ImportedSheetNode) -> None:
         target_max_col = max(max_col, DEFAULT_BACKGROUND_MIN_COLS)
         engine.fill_background(normalized, target_max_row, target_max_col)
 
-    for placement in placements:
-        target = placement.item
-        if isinstance(target, CellNode):
-            _render_cell(
-                engine,
-                target,
+    for placement in sorted(plan.cells, key=lambda cell: (cell.row, cell.col)):
+        effective = _resolve(placement.styles)
+        if placement.colspan == 1 and placement.rowspan == 1:
+            engine.write_cell(
                 placement.row,
                 placement.col,
-                col_widths,
-                row_heights,
-                placement.styles,
+                placement.value,
+                effective,
+                DEFAULT_BORDER_COLOR,
             )
-        elif isinstance(target, RowNode):
-            _render_row(
-                engine,
-                target,
-                placement.row,
-                placement.col,
-                col_widths,
-                row_heights,
-                placement.styles,
-            )
-        elif isinstance(target, ColumnNode):
-            _render_column(
-                engine,
-                target,
-                placement.row,
-                placement.col,
-                col_widths,
-                row_heights,
-                placement.styles,
-            )
-        elif isinstance(target, TableNode):
-            _render_table(
-                engine,
-                target,
-                placement.row,
-                placement.col,
-                col_widths,
-                row_heights,
-                placement.styles,
-            )
-        elif isinstance(target, SpacerNode):
-            if placement.direction == "horizontal":
-                continue
-            height = (
-                target.height if target.height is not None else _default_row_height()
-            )
-            for offset in range(target.rows):
-                row_index = placement.row + offset
-                row_heights[row_index] = max(row_heights.get(row_index, 0.0), height)
         else:
-            assert_never(target)
+            engine.write_merged_cell(
+                placement.row,
+                placement.col,
+                placement.rowspan,
+                placement.colspan,
+                placement.value,
+                effective,
+                DEFAULT_BORDER_COLOR,
+            )
+        _update_dimensions(
+            col_widths=col_widths,
+            row_heights=row_heights,
+            column_index=placement.col,
+            row_index=placement.row,
+            value=placement.value,
+            style=effective,
+            colspan=placement.colspan,
+            rowspan=placement.rowspan,
+            prefer_height=placement.prefer_height,
+        )
+
+    for spacer in plan.spacers:
+        if spacer.direction == "horizontal":
+            continue
+        height = spacer.height if spacer.height is not None else _default_row_height()
+        for offset in range(spacer.rows):
+            row_index = spacer.row + offset
+            row_heights[row_index] = max(row_heights.get(row_index, 0.0), height)
 
     _apply_dimensions(engine, col_widths, row_heights)
