@@ -94,6 +94,7 @@ class SheetNode:
     name: str
     items: tuple[SheetItem, ...]
     background_color: str | None = None
+    show_gridlines: bool = True
 
 
 @dataclass(frozen=True)
@@ -103,6 +104,7 @@ class ImportedSheetNode:
     name: str
     source: str | Path | bytes | BinaryIO
     source_sheet: str
+    show_gridlines: bool | None = None
 
 
 @dataclass(frozen=True)

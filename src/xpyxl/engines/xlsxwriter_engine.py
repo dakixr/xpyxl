@@ -53,8 +53,9 @@ class XlsxWriterEngine(Engine):
         self._format_cache: dict[tuple[Any, ...], Format] = {}
         self._closed = False
 
-    def create_sheet(self, name: str) -> None:
+    def create_sheet(self, name: str, show_gridlines: bool = True) -> None:
         self._current_sheet = self._workbook.add_worksheet(name)
+        self._current_sheet.hide_gridlines(0 if show_gridlines else 2)
 
     def _get_format(
         self, style: EffectiveStyle, border_fallback_color: str
@@ -256,7 +257,11 @@ class XlsxWriterEngine(Engine):
                 self._current_sheet.write_blank(row_idx, col_idx, None, bg_fmt)
 
     def copy_sheet(
-        self, source: SaveTarget | bytes | BinaryIO, sheet_name: str, dest_name: str
+        self,
+        source: SaveTarget | bytes | BinaryIO,
+        sheet_name: str,
+        dest_name: str,
+        show_gridlines: bool | None = None,
     ) -> None:
         msg = (
             "import_sheet is not supported with engine='xlsxwriter'. "

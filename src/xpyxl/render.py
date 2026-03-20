@@ -650,10 +650,15 @@ def _apply_dimensions(
 def render_sheet(engine: Engine, node: SheetNode | ImportedSheetNode) -> None:
     """Render a sheet node using the given engine."""
     if isinstance(node, ImportedSheetNode):
-        engine.copy_sheet(node.source, node.source_sheet, node.name)
+        engine.copy_sheet(
+            node.source,
+            node.source_sheet,
+            node.name,
+            show_gridlines=node.show_gridlines,
+        )
         return
 
-    engine.create_sheet(node.name)
+    engine.create_sheet(node.name, show_gridlines=node.show_gridlines)
 
     col_widths: dict[int, float] = {}
     row_heights: dict[int, float] = {}

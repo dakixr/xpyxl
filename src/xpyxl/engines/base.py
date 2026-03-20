@@ -60,7 +60,7 @@ class Engine(ABC):
         """Initialize engine state without binding to an output target."""
 
     @abstractmethod
-    def create_sheet(self, name: str) -> None:
+    def create_sheet(self, name: str, show_gridlines: bool = True) -> None:
         """Create a new worksheet with the given name."""
         ...
 
@@ -146,7 +146,11 @@ class Engine(ABC):
 
     @abstractmethod
     def copy_sheet(
-        self, source: SaveTarget | bytes | BinaryIO, sheet_name: str, dest_name: str
+        self,
+        source: SaveTarget | bytes | BinaryIO,
+        sheet_name: str,
+        dest_name: str,
+        show_gridlines: bool | None = None,
     ) -> None:
         """Copy an existing sheet from another workbook into this workbook.
 
@@ -154,6 +158,8 @@ class Engine(ABC):
             source: Path, file-like, or bytes of the source workbook.
             sheet_name: Name of the sheet within the source workbook to copy.
             dest_name: Name of the sheet to create in the destination workbook.
+            show_gridlines: Override gridline visibility. When None, preserve the
+                source sheet setting if available.
         """
         ...
 

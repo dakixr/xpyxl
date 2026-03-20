@@ -71,12 +71,12 @@ Pull in a static sheet from an existing Excel file:
 ```python
 report = x.workbook()[
     x.import_sheet("template.xlsx", "Cover"),
-    x.sheet("Data")[x.row()["Item", "Value"], x.row()["A", 1]],
+    x.sheet("Data", show_gridlines=False)[x.row()["Item", "Value"], x.row()["A", 1]],
 ]
 report.save("with-template.xlsx")  # uses hybrid by default (fast + imports)
 ```
 
-Imported sheets preserve styles, merges, dimensions, freeze panes, filters, and other properties from the source file.
+Imported sheets preserve styles, merges, dimensions, freeze panes, filters, and other properties from the source file. You can override sheet gridlines with `show_gridlines=` on both `sheet(...)` and `import_sheet(...)`.
 
 Engine support for `import_sheet`:
 

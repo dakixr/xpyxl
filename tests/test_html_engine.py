@@ -129,6 +129,17 @@ def test_borders() -> None:
     assert "border:" in html or "border-top:" in html
 
 
+def test_sheet_gridlines_can_be_hidden() -> None:
+    workbook = x.workbook()[
+        x.sheet("Test", show_gridlines=False)[x.row()["A", "B"]]
+    ]
+    result = workbook.save(engine="html")
+    assert isinstance(result, bytes)
+    html = result.decode("utf-8")
+
+    assert 'class="text-sm sheet-gridlines"' not in html
+
+
 def test_copy_sheet_from_xlsx() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         source_path = Path(tmpdir) / "source.xlsx"
@@ -144,6 +155,22 @@ def test_copy_sheet_from_xlsx() -> None:
 
         assert "Imported" in html
         assert "Data" in html
+
+
+def test_copy_sheet_preserves_hidden_gridlines() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source_path = Path(tmpdir) / "source.xlsx"
+        source_wb = x.workbook()[
+            x.sheet("Source", show_gridlines=False)[x.row()["Imported", "Data"]]
+        ]
+        source_wb.save(source_path, engine="openpyxl")
+
+        workbook = x.workbook()[x.import_sheet(source_path, "Source", name="Imported")]
+        result = workbook.save(engine="html")
+        assert isinstance(result, bytes)
+        html = result.decode("utf-8")
+
+        assert 'class="text-sm sheet-gridlines"' not in html
 
 
 def test_copy_sheet_missing_sheet_raises() -> None:

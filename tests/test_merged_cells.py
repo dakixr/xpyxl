@@ -9,6 +9,20 @@ import pytest
 import xpyxl as x
 
 
+@pytest.mark.parametrize("engine", ["openpyxl", "xlsxwriter", "hybrid"])
+def test_generated_sheet_can_hide_gridlines(engine: str) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / f"{engine}.xlsx"
+
+        workbook = x.workbook()[
+            x.sheet("Hidden", show_gridlines=False)[x.row()["A", "B"]]
+        ]
+        workbook.save(output_path, engine=engine)  # type: ignore[arg-type]
+
+        ws = openpyxl.load_workbook(output_path)["Hidden"]
+        assert ws.sheet_view.showGridLines is False
+
+
 def test_cell_builder_rejects_invalid_colspan() -> None:
     with pytest.raises(ValueError, match="Cell colspan must be >= 1"):
         x.cell(colspan=0)["bad"]
@@ -173,3 +187,32 @@ def test_imported_html_renders_existing_merged_ranges() -> None:
         assert 'rowspan="2"' in html
         assert "Merged Title" in html
         assert "Region" in html
+
+
+@pytest.mark.parametrize("engine", ["openpyxl", "hybrid"])
+def test_imported_sheet_can_override_gridlines(engine: str) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source_path = Path(tmpdir) / "source.xlsx"
+        output_path = Path(tmpdir) / f"{engine}.xlsx"
+
+        source_wb = openpyxl.Workbook()
+        source_ws = source_wb.active
+        if source_ws is None:
+            raise RuntimeError("Expected an active worksheet")
+        source_ws.title = "Source"
+        source_ws.sheet_view.showGridLines = True
+        source_ws["A1"] = "Imported"
+        source_wb.save(source_path)
+
+        workbook = x.workbook()[
+            x.import_sheet(
+                source_path,
+                "Source",
+                name="Imported",
+                show_gridlines=False,
+            )
+        ]
+        workbook.save(output_path, engine=engine)  # type: ignore[arg-type]
+
+        ws = openpyxl.load_workbook(output_path)["Imported"]
+        assert ws.sheet_view.showGridLines is False

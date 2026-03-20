@@ -34,16 +34,18 @@ class HybridEngine(Engine):
     def __init__(self) -> None:
         super().__init__()
         self._xlsx_engine = XlsxWriterEngine()
-        # Deferred import operations: (source, source_sheet_name, dest_name)
-        self._imports: list[tuple[SaveTarget | bytes | BinaryIO, str, str]] = []
+        # Deferred import operations: (source, source_sheet_name, dest_name, show_gridlines)
+        self._imports: list[
+            tuple[SaveTarget | bytes | BinaryIO, str, str, bool | None]
+        ] = []
         # Track sheet names in declaration order for reordering
         self._sheet_order: list[str] = []
         # Track if we have any generated sheets
         self._has_generated_sheets = False
 
-    def create_sheet(self, name: str) -> None:
+    def create_sheet(self, name: str, show_gridlines: bool = True) -> None:
         """Create a new worksheet, delegating to xlsxwriter."""
-        self._xlsx_engine.create_sheet(name)
+        self._xlsx_engine.create_sheet(name, show_gridlines=show_gridlines)
         self._sheet_order.append(name)
         self._has_generated_sheets = True
 
@@ -97,14 +99,18 @@ class HybridEngine(Engine):
         self._xlsx_engine.fill_background(color, max_row, max_col)
 
     def copy_sheet(
-        self, source: SaveTarget | bytes | BinaryIO, sheet_name: str, dest_name: str
+        self,
+        source: SaveTarget | bytes | BinaryIO,
+        sheet_name: str,
+        dest_name: str,
+        show_gridlines: bool | None = None,
     ) -> None:
         """Record a deferred import operation to be applied at save time.
 
         Unlike xlsxwriter which cannot import sheets, HybridEngine defers
         these operations and applies them using openpyxl during save().
         """
-        self._imports.append((source, sheet_name, dest_name))
+        self._imports.append((source, sheet_name, dest_name, show_gridlines))
         self._sheet_order.append(dest_name)
 
     def _build_openpyxl_workbook_from_xlsx(self) -> _OpenpyxlWorkbook:
@@ -185,8 +191,13 @@ class HybridEngine(Engine):
         # Phase B: Apply imports via OpenpyxlEngine
         openpyxl_engine = OpenpyxlEngine.from_workbook(merged_wb)
 
-        for source, sheet_name, dest_name in self._imports:
-            openpyxl_engine.copy_sheet(source, sheet_name, dest_name)
+        for source, sheet_name, dest_name, show_gridlines in self._imports:
+            openpyxl_engine.copy_sheet(
+                source,
+                sheet_name,
+                dest_name,
+                show_gridlines=show_gridlines,
+            )
 
         # Phase C: Reorder sheets to match declaration order
         self._reorder_sheets(merged_wb)

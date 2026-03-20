@@ -36,6 +36,7 @@ class _CellData:
 @dataclass
 class _SheetData:
     name: str
+    show_gridlines: bool = True
     cells: dict[tuple[int, int], _CellData] = field(default_factory=dict)
     merges: dict[tuple[int, int], tuple[int, int]] = field(default_factory=dict)
     covered_cells: set[tuple[int, int]] = field(default_factory=set)
@@ -56,8 +57,8 @@ class HtmlEngine(Engine):
         self._sheets: list[_SheetData] = []
         self._current_sheet: _SheetData | None = None
 
-    def create_sheet(self, name: str) -> None:
-        sheet = _SheetData(name=name)
+    def create_sheet(self, name: str, show_gridlines: bool = True) -> None:
+        sheet = _SheetData(name=name, show_gridlines=show_gridlines)
         self._sheets.append(sheet)
         self._current_sheet = sheet
 
@@ -120,14 +121,26 @@ class HtmlEngine(Engine):
         sheet.background_max_col = max(sheet.background_max_col, max_col)
 
     def copy_sheet(
-        self, source: SaveTarget | bytes | BinaryIO, sheet_name: str, dest_name: str
+        self,
+        source: SaveTarget | bytes | BinaryIO,
+        sheet_name: str,
+        dest_name: str,
+        show_gridlines: bool | None = None,
     ) -> None:
         source_wb = self._load_source_workbook(source)
         if sheet_name not in source_wb.sheetnames:
             raise ValueError(f"Sheet '{sheet_name}' not found in source workbook")
         source_ws = source_wb[sheet_name]
 
-        self.create_sheet(dest_name)
+        source_gridlines = source_ws.sheet_view.showGridLines
+        self.create_sheet(
+            dest_name,
+            show_gridlines=(
+                True if source_gridlines is None else source_gridlines
+            )
+            if show_gridlines is None
+            else show_gridlines,
+        )
         sheet = self._require_sheet()
         merge_anchors: set[tuple[int, int]] = set()
 
@@ -265,6 +278,7 @@ class HtmlEngine(Engine):
     .sheet-content {{ min-height: 320px; overflow: auto; padding: 16px; }}
     table {{ border-collapse: collapse; }}
     td {{ padding: 2px 6px; vertical-align: top; }}
+    .sheet-gridlines td {{ border: 1px solid #E5E7EB; }}
   </style>
 </head>
 <body class=\"bg-slate-100 p-6\">
@@ -357,7 +371,11 @@ class HtmlEngine(Engine):
                 )
             )
 
-        return "<table class=\"text-sm\">{colgroup}{rows}</table>".format(
+        table_classes = "text-sm"
+        if sheet.show_gridlines:
+            table_classes += " sheet-gridlines"
+        return "<table class=\"{classes}\">{colgroup}{rows}</table>".format(
+            classes=table_classes,
             colgroup=colgroup,
             rows="".join(rows_html),
         )

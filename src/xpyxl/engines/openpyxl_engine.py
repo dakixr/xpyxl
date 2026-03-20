@@ -55,8 +55,9 @@ class OpenpyxlEngine(Engine):
         engine._init_instance_vars()
         return engine
 
-    def create_sheet(self, name: str) -> None:
+    def create_sheet(self, name: str, show_gridlines: bool = True) -> None:
         self._current_sheet = self._workbook.create_sheet(title=name)
+        self._current_sheet.sheet_view.showGridLines = show_gridlines
 
     def write_cell(
         self,
@@ -577,7 +578,11 @@ class OpenpyxlEngine(Engine):
             raise ValueError(f"Sheet '{name}' already exists in destination workbook")
 
     def copy_sheet(
-        self, source: SaveTarget | bytes | BinaryIO, sheet_name: str, dest_name: str
+        self,
+        source: SaveTarget | bytes | BinaryIO,
+        sheet_name: str,
+        dest_name: str,
+        show_gridlines: bool | None = None,
     ) -> None:
         """Copy a sheet from an external workbook into the current workbook.
 
@@ -595,6 +600,11 @@ class OpenpyxlEngine(Engine):
         source_ws = source_wb[sheet_name]
         target_ws = self._workbook.create_sheet(title=dest_name)
         self._clone_sheet_contents(source_ws, target_ws)
+        target_ws.sheet_view.showGridLines = (
+            source_ws.sheet_view.showGridLines
+            if show_gridlines is None
+            else show_gridlines
+        )
 
         self._current_sheet = target_ws
 

@@ -254,11 +254,18 @@ class TableBuilder(_BuilderBase):
 
 
 class SheetBuilder:
-    def __init__(self, name: str, *, background_color: str | None = None) -> None:
+    def __init__(
+        self,
+        name: str,
+        *,
+        background_color: str | None = None,
+        show_gridlines: bool = True,
+    ) -> None:
         self._name = name
         self._background_color = (
             normalize_hex(background_color) if background_color else None
         )
+        self._show_gridlines = show_gridlines
 
     def __getitem__(
         self, items: SheetComponent | Sequence[SheetComponent]
@@ -277,6 +284,7 @@ class SheetBuilder:
             name=self._name,
             items=tuple(entries),
             background_color=self._background_color,
+            show_gridlines=self._show_gridlines,
         )
 
 
@@ -323,8 +331,17 @@ def table(
     return TableBuilder(styles=style, header_style=header_style, columns=column_order)
 
 
-def sheet(name: str, *, background_color: str | None = None) -> SheetBuilder:
-    return SheetBuilder(name, background_color=background_color)
+def sheet(
+    name: str,
+    *,
+    background_color: str | None = None,
+    show_gridlines: bool = True,
+) -> SheetBuilder:
+    return SheetBuilder(
+        name,
+        background_color=background_color,
+        show_gridlines=show_gridlines,
+    )
 
 
 def import_sheet(
@@ -332,11 +349,17 @@ def import_sheet(
     sheet_name: str,
     *,
     name: str | None = None,
+    show_gridlines: bool | None = None,
 ) -> ImportedSheetNode:
     """Import an existing sheet from a workbook without translating it."""
 
     dest_name = name or sheet_name
-    return ImportedSheetNode(name=dest_name, source=source, source_sheet=sheet_name)
+    return ImportedSheetNode(
+        name=dest_name,
+        source=source,
+        source_sheet=sheet_name,
+        show_gridlines=show_gridlines,
+    )
 
 
 def space(rows: int = 1, *, height: float | None = None) -> SpacerNode:
