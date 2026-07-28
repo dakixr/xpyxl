@@ -49,9 +49,7 @@ def vertical_examples() -> x.Node:
             "The left label should span two rows while the data flows around it."
         ],
         x.row()[
-            x.cell(style=[x.bg_success, x.bold, x.align_middle], rowspan=2)[
-                "North"
-            ],
+            x.cell(style=[x.bg_success, x.bold, x.align_middle], rowspan=2)["North"],
             "Jan",
             240,
             "On target",

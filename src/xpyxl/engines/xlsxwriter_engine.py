@@ -192,6 +192,8 @@ class XlsxWriterEngine(Engine):
             self._current_sheet.write(row_idx, col_idx, value, fmt)
         elif isinstance(value, (int, float)):
             self._current_sheet.write_number(row_idx, col_idx, value, fmt)
+        elif isinstance(value, str) and len(value) > 1 and value.startswith("="):
+            self._current_sheet.write_formula(row_idx, col_idx, value, fmt)
         else:
             self._current_sheet.write_string(row_idx, col_idx, str(value), fmt)
 

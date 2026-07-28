@@ -62,7 +62,7 @@ def test_multiple_sheets_with_tabs() -> None:
     assert "Sheet2" in html
     assert "Sheet3" in html
     assert "data-sheet" in html
-    assert html.count("class=\"sheet-content\"") == 3
+    assert html.count('class="sheet-content"') == 3
 
 
 def test_sheet_names_escaped() -> None:
@@ -130,9 +130,7 @@ def test_borders() -> None:
 
 
 def test_sheet_gridlines_can_be_hidden() -> None:
-    workbook = x.workbook()[
-        x.sheet("Test", show_gridlines=False)[x.row()["A", "B"]]
-    ]
+    workbook = x.workbook()[x.sheet("Test", show_gridlines=False)[x.row()["A", "B"]]]
     result = workbook.save(engine="html")
     assert isinstance(result, bytes)
     html = result.decode("utf-8")
@@ -143,9 +141,7 @@ def test_sheet_gridlines_can_be_hidden() -> None:
 def test_copy_sheet_from_xlsx() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         source_path = Path(tmpdir) / "source.xlsx"
-        source_wb = x.workbook()[
-            x.sheet("Source")[x.row()["Imported", "Data"]]
-        ]
+        source_wb = x.workbook()[x.sheet("Source")[x.row()["Imported", "Data"]]]
         source_wb.save(source_path, engine="openpyxl")
 
         workbook = x.workbook()[x.import_sheet(source_path, "Source", name="Imported")]

@@ -135,9 +135,7 @@ class HtmlEngine(Engine):
         source_gridlines = source_ws.sheet_view.showGridLines
         self.create_sheet(
             dest_name,
-            show_gridlines=(
-                True if source_gridlines is None else source_gridlines
-            )
+            show_gridlines=(True if source_gridlines is None else source_gridlines)
             if show_gridlines is None
             else show_gridlines,
         )
@@ -329,7 +327,7 @@ class HtmlEngine(Engine):
         max_col = max(max_col, max(sheet.col_widths.keys(), default=0))
 
         if max_row == 0 or max_col == 0:
-            return "<div class=\"text-gray-500\">Empty sheet</div>"
+            return '<div class="text-gray-500">Empty sheet</div>'
 
         colgroup = self._render_colgroup(max_col, sheet.col_widths)
         rows_html: list[str] = []
@@ -345,7 +343,9 @@ class HtmlEngine(Engine):
                     classes, inline_css = self._style_to_css(
                         cell_data.style, cell_data.border_fallback_color
                     )
-                    value = _format_value(cell_data.value, cell_data.style.number_format)
+                    value = _format_value(
+                        cell_data.value, cell_data.style.number_format
+                    )
                 else:
                     classes = ""
                     inline_css = ""
@@ -357,7 +357,7 @@ class HtmlEngine(Engine):
                     span_attrs.append(f'colspan="{colspan}"')
                 span_markup = f" {' '.join(span_attrs)}" if span_attrs else ""
                 cells_html.append(
-                    "<td class=\"{classes}\" style=\"{style}\"{span}>{value}</td>".format(
+                    '<td class="{classes}" style="{style}"{span}>{value}</td>'.format(
                         classes=classes,
                         style=inline_css,
                         span=span_markup,
@@ -366,7 +366,7 @@ class HtmlEngine(Engine):
                 )
             row_style = f"height: {row_height}pt;" if row_height else ""
             rows_html.append(
-                "<tr style=\"{style}\">{cells}</tr>".format(
+                '<tr style="{style}">{cells}</tr>'.format(
                     style=row_style, cells="".join(cells_html)
                 )
             )
@@ -374,7 +374,7 @@ class HtmlEngine(Engine):
         table_classes = "text-sm"
         if sheet.show_gridlines:
             table_classes += " sheet-gridlines"
-        return "<table class=\"{classes}\">{colgroup}{rows}</table>".format(
+        return '<table class="{classes}">{colgroup}{rows}</table>'.format(
             classes=table_classes,
             colgroup=colgroup,
             rows="".join(rows_html),
@@ -388,7 +388,7 @@ class HtmlEngine(Engine):
             width = col_widths.get(col)
             if width:
                 px_width = width * COLUMN_WIDTH_PX
-                cols.append(f"<col style=\"width: {px_width:.1f}px;\">")
+                cols.append(f'<col style="width: {px_width:.1f}px;">')
             else:
                 cols.append("<col>")
         return "<colgroup>{}</colgroup>".format("".join(cols))
@@ -465,7 +465,12 @@ class HtmlEngine(Engine):
         css_style = _border_style_to_css(border_style)
 
         parts: list[str] = []
-        if style.border_top or style.border_bottom or style.border_left or style.border_right:
+        if (
+            style.border_top
+            or style.border_bottom
+            or style.border_left
+            or style.border_right
+        ):
             if style.border_top:
                 parts.append(f"border-top: {width} {css_style} {border_color}")
             if style.border_bottom:
@@ -559,7 +564,9 @@ class HtmlEngine(Engine):
             auto_width=True,
             row_height=None,
             row_width=None,
-            number_format=cell.number_format if cell.number_format != "General" else None,
+            number_format=cell.number_format
+            if cell.number_format != "General"
+            else None,
             border=border_style,
             border_color=border_color,
             border_top=border_top,

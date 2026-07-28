@@ -5,8 +5,35 @@ from datetime import date, datetime
 from pathlib import Path
 
 import openpyxl
+import pytest
 
 import xpyxl as x
+
+
+@pytest.mark.parametrize("engine", ["openpyxl", "xlsxwriter", "hybrid"])
+def test_formula_strings_are_written_as_formulas(engine: str) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / f"{engine}.xlsx"
+        workbook = x.workbook()[x.sheet("Formulas")[x.row()["=1+1"]]]
+
+        workbook.save(output_path, engine=engine)  # type: ignore[arg-type]
+
+        cell = openpyxl.load_workbook(output_path, data_only=False)["Formulas"]["A1"]
+        assert cell.value == "=1+1"
+        assert cell.data_type == "f"
+
+
+@pytest.mark.parametrize("engine", ["openpyxl", "xlsxwriter", "hybrid"])
+def test_bare_equals_sign_is_written_as_text(engine: str) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / f"{engine}.xlsx"
+        workbook = x.workbook()[x.sheet("Text")[x.row()["="]]]
+
+        workbook.save(output_path, engine=engine)  # type: ignore[arg-type]
+
+        cell = openpyxl.load_workbook(output_path, data_only=False)["Text"]["A1"]
+        assert cell.value == "="
+        assert cell.data_type == "s"
 
 
 def test_xlsxwriter_applies_custom_date_formats() -> None:

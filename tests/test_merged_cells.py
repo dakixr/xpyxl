@@ -91,18 +91,20 @@ def test_rowspan_conflict_with_block_content_raises() -> None:
         ]
     ]
 
-    with pytest.raises(ValueError, match="Merged cells cannot overlap existing content"):
+    with pytest.raises(
+        ValueError, match="Merged cells cannot overlap existing content"
+    ):
         workbook.save(engine="openpyxl")
 
 
 def test_merged_cells_inside_tables_raise() -> None:
     workbook = x.workbook()[
-        x.sheet("Table")[
-            x.table()[[x.row()[x.cell(colspan=2)["Not allowed"]]]],
-        ]
+        x.sheet("Table")[x.table()[[x.row()[x.cell(colspan=2)["Not allowed"]]]],]
     ]
 
-    with pytest.raises(ValueError, match="Merged cells are not supported inside tables"):
+    with pytest.raises(
+        ValueError, match="Merged cells are not supported inside tables"
+    ):
         workbook.save(engine="openpyxl")
 
 
@@ -142,9 +144,10 @@ def test_wrapping_merged_row_in_vstack_preserves_layout() -> None:
 
     for row in range(1, 4):
         for col in range(1, 4):
-            assert wrapped.cell(row=row, column=col).value == direct.cell(
-                row=row, column=col
-            ).value
+            assert (
+                wrapped.cell(row=row, column=col).value
+                == direct.cell(row=row, column=col).value
+            )
 
 
 def test_explicit_row_height_applies_to_each_row_in_rowspan() -> None:
@@ -159,6 +162,98 @@ def test_explicit_row_height_applies_to_each_row_in_rowspan() -> None:
 
     assert ws.row_dimensions[1].height == 40
     assert ws.row_dimensions[2].height == 40
+
+
+def test_vertical_spacer_starts_after_preceding_rowspan() -> None:
+    workbook = x.workbook()[
+        x.sheet("Spacers")[
+            x.vstack(
+                x.row()[x.cell(rowspan=2)["Merged"]],
+                x.space(height=33),
+                x.row()["After"],
+            )
+        ]
+    ]
+
+    ws = workbook.to_openpyxl()["Spacers"]
+
+    assert ws["A4"].value == "After"
+    assert ws.row_dimensions[3].height == 33
+
+
+def test_horizontal_spacer_starts_after_preceding_colspan() -> None:
+    workbook = x.workbook()[
+        x.sheet("Spacers")[
+            x.hstack(
+                x.row()[x.cell(colspan=2)["Merged"]],
+                x.space(),
+                x.row()["After"],
+            )
+        ]
+    ]
+
+    ws = workbook.to_openpyxl()["Spacers"]
+
+    assert ws["D1"].value == "After"
+
+
+def test_nested_stack_preserves_spacer_after_merged_cell() -> None:
+    workbook = x.workbook()[
+        x.sheet("Spacers")[
+            x.vstack(
+                x.row()[x.cell(rowspan=2)["Vertical"]],
+                x.space(),
+            ),
+            x.row()["After vertical"],
+            x.hstack(
+                x.hstack(
+                    x.row()[x.cell(colspan=2)["Horizontal"]],
+                    x.space(),
+                ),
+                x.row()["After horizontal"],
+            ),
+        ]
+    ]
+
+    ws = workbook.to_openpyxl()["Spacers"]
+
+    assert ws["A4"].value == "After vertical"
+    assert ws["D5"].value == "After horizontal"
+
+
+def test_horizontal_stack_uses_rendered_width_of_merged_component() -> None:
+    workbook = x.workbook()[
+        x.sheet("Merged")[
+            x.hstack(
+                x.hstack(x.row()[x.cell(colspan=2)["Wide"]]),
+                x.row()["After"],
+                gap=1,
+            )
+        ]
+    ]
+
+    ws = workbook.to_openpyxl()["Merged"]
+
+    assert ws["A1"].value == "Wide"
+    assert ws["D1"].value == "After"
+
+
+def test_nested_vertical_stack_preserves_gap_after_rowspan() -> None:
+    workbook = x.workbook()[
+        x.sheet("Merged")[
+            x.vstack(
+                x.row()[x.cell(rowspan=2)["Tall"]],
+                x.row()["Inside"],
+                gap=1,
+            ),
+            x.row()["After"],
+        ]
+    ]
+
+    ws = workbook.to_openpyxl()["Merged"]
+
+    assert ws["A4"].value == "Inside"
+    assert ws["A5"].value == "After"
 
 
 def test_imported_html_renders_existing_merged_ranges() -> None:

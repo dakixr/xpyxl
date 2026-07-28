@@ -396,9 +396,7 @@ def _table_has_merged_cells(node: TableNode) -> bool:
     ):
         return True
     return any(
-        cell.colspan > 1 or cell.rowspan > 1
-        for row in node.rows
-        for cell in row.cells
+        cell.colspan > 1 or cell.rowspan > 1 for row in node.rows for cell in row.cells
     )
 
 
@@ -443,9 +441,19 @@ def _build_table_plan(node: TableNode, extra_styles: tuple[Style, ...]) -> _Grid
         for column_offset, cell_node in enumerate(row_node.cells, start=1):
             base_chain = (*extra_styles, *node.styles)
             if extras_first:
-                style_chain = (*base_chain, *extras, *row_node.styles, *cell_node.styles)
+                style_chain = (
+                    *base_chain,
+                    *extras,
+                    *row_node.styles,
+                    *cell_node.styles,
+                )
             else:
-                style_chain = (*base_chain, *row_node.styles, *extras, *cell_node.styles)
+                style_chain = (
+                    *base_chain,
+                    *row_node.styles,
+                    *extras,
+                    *cell_node.styles,
+                )
             if table_border_style:
                 style_chain = (*style_chain, table_border_style)
             plan.add_cell(
@@ -490,6 +498,10 @@ def _build_horizontal_plan(
     col_cursor = 1
     for idx, child in enumerate(items):
         if isinstance(child, SpacerNode):
+            # A spacer must begin after the full rendered width of preceding
+            # content. Its logical width can be smaller when that content
+            # contains merged cells.
+            col_cursor = max(col_cursor, plan.max_col + 1)
             plan.add_spacer(
                 1,
                 col_cursor,
@@ -501,8 +513,16 @@ def _build_horizontal_plan(
         else:
             child_plan = _build_item_plan(child, extra_styles=extra_styles)
             plan.merge(child_plan, row=1, col=col_cursor)
-            col_cursor += _logical_width(child)
-        if idx < len(items) - 1:
+            child_width = max(_logical_width(child), child_plan.max_col)
+            col_cursor += child_width
+        if idx < len(items) - 1 and gap:
+            plan.add_spacer(
+                1,
+                col_cursor,
+                rows=gap,
+                height=None,
+                direction="horizontal",
+            )
             col_cursor += gap
     return plan
 
@@ -523,6 +543,9 @@ def _build_vertical_plan(
             _place_row_node(plan, child, row=row_cursor, extra_styles=extra_styles)
             row_cursor += 1
         elif isinstance(child, SpacerNode):
+            # Keep the spacer clear of rowspans from preceding content. Rows
+            # without a spacer may still flow alongside a rowspan.
+            row_cursor = max(row_cursor, plan.max_row + 1)
             plan.add_spacer(
                 row_cursor,
                 1,
@@ -534,8 +557,19 @@ def _build_vertical_plan(
         else:
             child_plan = _build_item_plan(child, extra_styles=extra_styles)
             plan.merge(child_plan, row=row_cursor, col=1)
-            row_cursor += _logical_height(child)
-        if idx < len(items) - 1:
+            child_height = _logical_height(child)
+            if any(spacer.direction == "vertical" for spacer in child_plan.spacers):
+                child_height = max(child_height, child_plan.max_row)
+            row_cursor += child_height
+        if idx < len(items) - 1 and gap:
+            row_cursor = max(row_cursor, plan.max_row + 1)
+            plan.add_spacer(
+                row_cursor,
+                1,
+                rows=gap,
+                height=None,
+                direction="vertical",
+            )
             row_cursor += gap
     return plan
 
