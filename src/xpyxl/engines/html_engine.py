@@ -13,7 +13,7 @@ from openpyxl import load_workbook
 from openpyxl.cell.cell import MergedCell
 
 from ..styles import BorderStyleName, normalize_hex
-from .base import EffectiveStyle, Engine, SaveTarget
+from .base import EffectiveStyle, Engine, SaveTarget, normalize_cell_value
 
 __all__ = ["HtmlEngine"]
 
@@ -72,7 +72,7 @@ class HtmlEngine(Engine):
     ) -> None:
         sheet = self._require_sheet()
         sheet.cells[(row, col)] = _CellData(
-            value=value,
+            value=normalize_cell_value(value),
             style=style,
             border_fallback_color=normalize_hex(border_fallback_color),
         )
@@ -91,7 +91,7 @@ class HtmlEngine(Engine):
     ) -> None:
         sheet = self._require_sheet()
         sheet.cells[(row, col)] = _CellData(
-            value=value,
+            value=normalize_cell_value(value),
             style=style,
             border_fallback_color=normalize_hex(border_fallback_color),
         )

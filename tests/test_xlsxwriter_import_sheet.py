@@ -403,5 +403,106 @@ def test_hybrid_with_style_heavy_import_sheet() -> None:
         assert result_wb["Imported"]["B2"].number_format == "#,##0"
 
 
+@pytest.mark.parametrize("engine", ["openpyxl", "hybrid"])
+def test_import_sheet_preserves_excel_tables(engine: str) -> None:
+    """Imported sheets must keep their Excel table definitions."""
+    from openpyxl.worksheet.table import Table, TableStyleInfo
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        source_path = tmppath / "source.xlsx"
+        output_path = tmppath / f"output-{engine}.xlsx"
+
+        source_wb = openpyxl.Workbook()
+        source_ws = source_wb.active
+        if source_ws is None:
+            raise RuntimeError("Expected an active worksheet")
+        source_ws.title = "Data"
+        source_ws.append(["Name", "Value"])
+        source_ws.append(["a", 1])
+        source_ws.append(["b", 2])
+        table = Table(displayName="DataTable", ref="A1:B3")
+        table.tableStyleInfo = TableStyleInfo(
+            name="TableStyleMedium9", showRowStripes=True
+        )
+        source_ws.add_table(table)
+        source_wb.save(source_path)
+
+        workbook = x.workbook()[x.import_sheet(source_path, "Data")]
+        workbook.save(output_path, engine=engine)  # type: ignore[arg-type]
+
+        result_ws = openpyxl.load_workbook(output_path)["Data"]
+        assert "DataTable" in result_ws.tables
+        assert result_ws.tables["DataTable"].ref == "A1:B3"
+
+
+@pytest.mark.parametrize("engine", ["openpyxl", "hybrid"])
+def test_repeated_import_of_same_table_sheet_uniquifies_names(engine: str) -> None:
+    """Importing the same table-bearing sheet twice keeps both tables."""
+    from openpyxl.worksheet.table import Table
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        source_path = tmppath / "source.xlsx"
+        output_path = tmppath / f"output-{engine}.xlsx"
+
+        source_wb = openpyxl.Workbook()
+        source_ws = source_wb.active
+        if source_ws is None:
+            raise RuntimeError("Expected an active worksheet")
+        source_ws.title = "Data"
+        source_ws.append(["Name", "Value"])
+        source_ws.append(["a", 1])
+        source_ws.add_table(Table(displayName="DataTable", ref="A1:B2"))
+        source_wb.save(source_path)
+
+        workbook = x.workbook()[
+            x.import_sheet(source_path, "Data", name="One"),
+            x.import_sheet(source_path, "Data", name="Two"),
+        ]
+        workbook.save(output_path, engine=engine)  # type: ignore[arg-type]
+
+        result_wb = openpyxl.load_workbook(output_path)
+        all_names = {
+            name for sheet in result_wb.worksheets for name in sheet.tables
+        }
+        assert len(all_names) == 2
+        assert len(result_wb["One"].tables) == 1
+        assert len(result_wb["Two"].tables) == 1
+
+
+@pytest.mark.parametrize("engine", ["openpyxl", "hybrid"])
+def test_case_insensitive_table_name_collision(engine: str) -> None:
+    """Case-insensitive table-name collisions must uniquify, not drop."""
+    from openpyxl.worksheet.table import Table
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        src_a = tmppath / "src_a.xlsx"
+        src_b = tmppath / "src_b.xlsx"
+        output_path = tmppath / f"output-{engine}.xlsx"
+
+        for path, tname in [(src_a, "DataTable"), (src_b, "datatable")]:
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            if ws is None:
+                raise RuntimeError("Expected an active worksheet")
+            ws.title = "Data"
+            ws.append(["A", "B"])
+            ws.append(["x", 1])
+            ws.add_table(Table(displayName=tname, ref="A1:B2"))
+            wb.save(path)
+
+        workbook = x.workbook()[
+            x.import_sheet(src_a, "Data", name="One"),
+            x.import_sheet(src_b, "Data", name="Two"),
+        ]
+        workbook.save(output_path, engine=engine)  # type: ignore[arg-type]
+
+        result_wb = openpyxl.load_workbook(output_path)
+        assert len(result_wb["One"].tables) == 1
+        assert len(result_wb["Two"].tables) == 1
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

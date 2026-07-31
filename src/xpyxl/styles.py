@@ -117,6 +117,8 @@ def normalize_hex(value: str) -> str:
         text = "".join(ch * 2 for ch in text)
     if len(text) != 6:
         raise ValueError(f"Expected 6 hex characters, got '{value}'")
+    if any(ch not in "0123456789abcdefABCDEF" for ch in text):
+        raise ValueError(f"Invalid hex color value: '{value}'")
     return "#" + text.upper()
 
 

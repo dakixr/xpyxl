@@ -195,8 +195,8 @@ wheels = [
 
 [[package]]
 name = "xpyxl"
-version = "0.8.2"
-source = { virtual = "." }
+version = "0.9.0"
+source = { editable = "." }
 dependencies = [
     { name = "openpyxl" },
     { name = "xlsxwriter" },

@@ -1,11 +1,25 @@
 [project]
 name = "xpyxl"
-version = "0.8.2"
+version = "0.9.0"
 description = "Create styled excel reports with declarative python."
 readme = "README.md"
 authors = [{ name = "dakixr", email = "dakixr@gmail.com" }]
 requires-python = ">=3.12"
+keywords = ["excel", "xlsx", "report", "spreadsheet", "openpyxl", "xlsxwriter"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business :: Financial :: Spreadsheet",
+]
 dependencies = ["openpyxl>=3.1.5", "xlsxwriter>=3.1.0"]
+
+[project.urls]
+Homepage = "https://github.com/dakixr/xpyxl"
+Repository = "https://github.com/dakixr/xpyxl"
+Issues = "https://github.com/dakixr/xpyxl/issues"
 
 [dependency-groups]
 dev = [
@@ -13,3 +27,13 @@ dev = [
     "pyright>=1.1.406",
     "pytest>=9.0.2",
 ]
+
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/xpyxl"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/xpyxl"]

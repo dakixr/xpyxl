@@ -48,6 +48,26 @@ Node = (
     | HorizontalStackNode
 )
 
+_INVALID_SHEET_NAME_CHARS = frozenset("[]:*?/\\")
+_MAX_SHEET_NAME_LENGTH = 31
+
+
+def _validate_sheet_name(name: str) -> None:
+    """Reject sheet names Excel cannot represent (backend-agnostic errors)."""
+    if not name:
+        msg = "Sheet name cannot be empty"
+        raise ValueError(msg)
+    if len(name) > _MAX_SHEET_NAME_LENGTH:
+        msg = f"Sheet name must be <= 31 characters, got {len(name)}: {name!r}"
+        raise ValueError(msg)
+    invalid = sorted(set(name) & _INVALID_SHEET_NAME_CHARS)
+    if invalid:
+        msg = f"Sheet name {name!r} contains invalid characters: {' '.join(invalid)}"
+        raise ValueError(msg)
+    if name.startswith("'") or name.endswith("'"):
+        msg = f"Sheet name cannot begin or end with an apostrophe: {name!r}"
+        raise ValueError(msg)
+
 
 def _as_tuple(values: object) -> tuple[object, ...]:
     if isinstance(values, tuple):
@@ -261,6 +281,7 @@ class SheetBuilder:
         background_color: str | None = None,
         show_gridlines: bool = True,
     ) -> None:
+        _validate_sheet_name(name)
         self._name = name
         self._background_color = (
             normalize_hex(background_color) if background_color else None
@@ -301,6 +322,17 @@ class WorkbookBuilder:
                 raise TypeError(
                     "Workbooks accept sheet builders that have been indexed"
                 )
+        seen_names: set[str] = set()
+        for sheet_node in sheet_nodes:
+            _validate_sheet_name(sheet_node.name)
+            key = sheet_node.name.casefold()
+            if key in seen_names:
+                msg = (
+                    f"Duplicate sheet name {sheet_node.name!r}: sheet names must "
+                    "be unique (case-insensitive) across the workbook"
+                )
+                raise ValueError(msg)
+            seen_names.add(key)
         node = WorkbookNode(sheets=tuple(sheet_nodes))
         return Workbook(node)
 
@@ -354,6 +386,7 @@ def import_sheet(
     """Import an existing sheet from a workbook without translating it."""
 
     dest_name = name or sheet_name
+    _validate_sheet_name(dest_name)
     return ImportedSheetNode(
         name=dest_name,
         source=source,

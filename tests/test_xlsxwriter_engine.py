@@ -36,6 +36,19 @@ def test_bare_equals_sign_is_written_as_text(engine: str) -> None:
         assert cell.data_type == "s"
 
 
+@pytest.mark.parametrize("engine", ["openpyxl", "xlsxwriter", "hybrid"])
+def test_bare_equals_in_merged_cell_is_text(engine: str) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / f"{engine}.xlsx"
+        workbook = x.workbook()[x.sheet("Text")[x.row()[x.cell(colspan=2)["="]]]]
+
+        workbook.save(output_path, engine=engine)  # type: ignore[arg-type]
+
+        cell = openpyxl.load_workbook(output_path, data_only=False)["Text"]["A1"]
+        assert cell.value == "="
+        assert cell.data_type == "s"
+
+
 def test_xlsxwriter_applies_custom_date_formats() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         output_path = Path(tmpdir) / "output.xlsx"

@@ -166,3 +166,11 @@ Tables accept polars/pandas-friendly shapes:
 - Modern Python with full type hints
 - Pure Python stack traces; easy to debug, script, and test
 - Deterministic rendering for stable diffs in CI
+
+### Cell values
+
+Cell values render identically across all engines:
+
+- **Supported scalars** — `str`, `int`, `float`, `bool`, `datetime`, `date`, `time`, `timedelta`, `Decimal`, and `None`.
+- **Formula strings** — any string starting with `=` becomes an Excel formula (e.g. `"=SUM(A1:A3)"`).
+- **Anything else** — other objects (e.g. dataclasses, enums) degrade to their `str()` form so output never differs between engines.

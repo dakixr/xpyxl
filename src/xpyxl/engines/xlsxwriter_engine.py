@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
+from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, BinaryIO
@@ -10,7 +11,7 @@ from typing import TYPE_CHECKING, Any, BinaryIO
 import xlsxwriter
 
 from ..styles import normalize_hex
-from .base import EffectiveStyle, Engine, SaveTarget
+from .base import EffectiveStyle, Engine, SaveTarget, normalize_cell_value
 
 if TYPE_CHECKING:
     from xlsxwriter.format import Format
@@ -37,6 +38,11 @@ BORDER_STYLE_MAP: dict[str, int] = {
     "mediumDashDotDot": 12,
     "slantDashDot": 13,
 }
+
+
+def _normalize_value(value: object) -> object:
+    """Normalize a cell value for xlsxwriter (delegates to the shared policy)."""
+    return normalize_cell_value(value)
 
 
 class XlsxWriterEngine(Engine):
@@ -90,7 +96,9 @@ class XlsxWriterEngine(Engine):
 
         # Font settings
         fmt.set_font_name(style.font_name)
-        fmt.set_font_size(int(style.font_size))
+        # xlsxwriter declares int but Excel supports half-point sizes and
+        # the value passes through to the XML unchanged.
+        fmt.set_font_size(style.font_size)  # type: ignore[arg-type]
         if style.bold:
             fmt.set_bold()
         if style.italic:
@@ -184,15 +192,19 @@ class XlsxWriterEngine(Engine):
         fmt = self._get_format(style, border_fallback_color)
 
         # xlsxwriter has different write methods for different types
+        value = _normalize_value(value)
         if value is None:
             self._current_sheet.write_blank(row_idx, col_idx, None, fmt)
         elif isinstance(value, bool):
             self._current_sheet.write_boolean(row_idx, col_idx, value, fmt)
         elif isinstance(value, (date, datetime, time, timedelta)):
             self._current_sheet.write(row_idx, col_idx, value, fmt)
-        elif isinstance(value, (int, float)):
-            self._current_sheet.write_number(row_idx, col_idx, value, fmt)
+        elif isinstance(value, (int, float, Decimal)):
+            # xlsxwriter declares int | float | Fraction but converts any
+            # numeric value via float() internally; Decimal works.
+            self._current_sheet.write_number(row_idx, col_idx, value, fmt)  # type: ignore[arg-type]
         elif isinstance(value, str) and len(value) > 1 and value.startswith("="):
+            # Match openpyxl: leading "=" means formula, not literal text.
             self._current_sheet.write_formula(row_idx, col_idx, value, fmt)
         else:
             self._current_sheet.write_string(row_idx, col_idx, str(value), fmt)
@@ -215,14 +227,19 @@ class XlsxWriterEngine(Engine):
             raise RuntimeError("No sheet created. Call create_sheet() first.")
 
         fmt = self._get_format(style, border_fallback_color)
+        value = _normalize_value(value)
+        # merge_range auto-detects "=" as a formula; set up the merge with a
+        # blank, then write the anchor with the same type dispatch as
+        # write_cell so the bare-"=" guard and all type logic apply uniformly.
         self._current_sheet.merge_range(
             row - 1,
             col - 1,
             row + rowspan - 2,
             col + colspan - 2,
-            value,
+            "",
             fmt,
         )
+        self.write_cell(row, col, value, style, border_fallback_color)
 
     def set_column_width(self, col: int, width: float) -> None:
         if self._current_sheet is None:

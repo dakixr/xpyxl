@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from xpyxl.nodes import ImportedSheetNode, SheetNode
-
 from ._workbook import Workbook
+from .nodes import ImportedSheetNode, SheetNode
 from .builders import (
     Node,
     cell,
@@ -153,8 +152,6 @@ __all__ = [
     "allow_overflow",
     "row_height",
     "row_width",
-    "nowrap",
-    "wrap_shrink",
     "border_all",
     "border_top",
     "border_bottom",

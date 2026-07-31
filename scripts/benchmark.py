@@ -389,6 +389,26 @@ def benchmark_hybrid_vs_openpyxl(
             output_path.unlink(missing_ok=True)
 
 
+def _engine_comparison_line(results: list[BenchmarkResult]) -> str | None:
+    """Compare the first two successful engines in a result group, if any."""
+    by_engine: dict[str, BenchmarkResult] = {}
+    for result in results:
+        if result.success and result.engine not in by_engine:
+            by_engine[result.engine] = result
+    if len(by_engine) < 2:
+        return None
+
+    first, second = (by_engine[name] for name in sorted(by_engine)[:2])
+    time_ratio = first.execution_time / second.execution_time
+    mem_ratio = first.memory_peak / second.memory_peak
+    faster = first.engine if time_ratio < 1 else second.engine
+    heavier = first.engine if mem_ratio > 1 else second.engine
+    return (
+        f"    → {faster} is {max(time_ratio, 1 / time_ratio):.2f}x faster, "
+        f"{heavier} uses {max(mem_ratio, 1 / mem_ratio):.2f}x more memory"
+    )
+
+
 def print_results(results: list[BenchmarkResult]) -> None:
     """Print formatted benchmark results to console.
 
@@ -439,34 +459,9 @@ def print_results(results: list[BenchmarkResult]) -> None:
                         print(f"    Error: {result.error}")
 
                 # Compare engines for this size
-                openpyxl_result = next(
-                    (r for r in size_results if r.engine == "openpyxl" and r.success),
-                    None,
-                )
-                xlsxwriter_result = next(
-                    (r for r in size_results if r.engine == "xlsxwriter" and r.success),
-                    None,
-                )
-
-                if openpyxl_result and xlsxwriter_result:
-                    time_ratio = (
-                        openpyxl_result.execution_time
-                        / xlsxwriter_result.execution_time
-                    )
-                    mem_ratio = (
-                        openpyxl_result.memory_peak / xlsxwriter_result.memory_peak
-                    )
-                    faster = (
-                        "openpyxl"
-                        if time_ratio < 1
-                        else "xlsxwriter"
-                        if time_ratio > 1
-                        else "equal"
-                    )
-                    print(
-                        f"    → {faster} is {max(time_ratio, 1 / time_ratio):.2f}x faster, "
-                        f"{'openpyxl' if mem_ratio > 1 else 'xlsxwriter'} uses {max(mem_ratio, 1 / mem_ratio):.2f}x more memory"
-                    )
+                comparison = _engine_comparison_line(size_results)
+                if comparison:
+                    print(comparison)
         else:
             # Print simple format for other scenarios
             print(f"{'Engine':<15} {'Time (s)':<12} {'Memory (MB)':<15}")
@@ -481,31 +476,9 @@ def print_results(results: list[BenchmarkResult]) -> None:
                     print(f"    Error: {result.error}")
 
             # Compare engines
-            openpyxl_result = next(
-                (r for r in scenario_results if r.engine == "openpyxl" and r.success),
-                None,
-            )
-            xlsxwriter_result = next(
-                (r for r in scenario_results if r.engine == "xlsxwriter" and r.success),
-                None,
-            )
-
-            if openpyxl_result and xlsxwriter_result:
-                time_ratio = (
-                    openpyxl_result.execution_time / xlsxwriter_result.execution_time
-                )
-                mem_ratio = openpyxl_result.memory_peak / xlsxwriter_result.memory_peak
-                faster = (
-                    "openpyxl"
-                    if time_ratio < 1
-                    else "xlsxwriter"
-                    if time_ratio > 1
-                    else "equal"
-                )
-                print(
-                    f"    → {faster} is {max(time_ratio, 1 / time_ratio):.2f}x faster, "
-                    f"{'openpyxl' if mem_ratio > 1 else 'xlsxwriter'} uses {max(mem_ratio, 1 / mem_ratio):.2f}x more memory"
-                )
+            comparison = _engine_comparison_line(scenario_results)
+            if comparison:
+                print(comparison)
 
     print("\n" + "=" * 80)
 
@@ -557,7 +530,7 @@ def main() -> None:
     all_results: list[BenchmarkResult] = []
 
     # Benchmark big tables
-    print("\n[1/3] Benchmarking Big Tables...")
+    print("\n[1/4] Benchmarking Big Tables...")
     for size in TABLE_SIZES:
         print(f"  Testing {size:,} rows...")
         for engine_str in ["openpyxl", "xlsxwriter"]:
@@ -577,7 +550,7 @@ def main() -> None:
             )
 
     # Benchmark simple layouts
-    print("\n[2/3] Benchmarking Simple Layouts...")
+    print("\n[2/4] Benchmarking Simple Layouts...")
     for engine_str in ["openpyxl", "xlsxwriter"]:
         engine = cast(EngineName, engine_str)
         print(f"  Testing {engine}...")
@@ -615,7 +588,9 @@ def main() -> None:
 
     for num_imported, num_generated, table_size, label in hybrid_scenarios:
         print(f"  Testing {label}...")
-        for engine_str in ["openpyxl", "xlsxwriter"]:
+        # xlsxwriter does not support import_sheet; compare the two engines
+        # that do: openpyxl and hybrid.
+        for engine_str in ["openpyxl", "hybrid"]:
             engine = cast(EngineName, engine_str)
             # Use descriptive scenario name that includes the configuration
             scenario_name = f"Hybrid vs Openpyxl: {label}"

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from functools import lru_cache
 from typing import Literal, assert_never
 
 from .engines.base import EffectiveStyle, Engine
@@ -168,7 +169,15 @@ class _GridPlan:
             self.max_col = max(self.max_col, col + other.max_col - 1)
 
 
-def _resolve(styles: Sequence[Style]) -> EffectiveStyle:
+@lru_cache(maxsize=4096)
+def _resolve(styles: tuple[Style, ...]) -> EffectiveStyle:
+    """Resolve a style chain to an EffectiveStyle.
+
+    Memoized: large sheets repeat the same style chains per cell, and Style
+    is immutable, so caching by the styles tuple is safe. EffectiveStyle is
+    frozen, so callers cannot poison the cache. The cache is bounded so
+    dynamically generated style chains cannot retain entries indefinitely.
+    """
     base_style = Style(
         font_name=DEFAULT_FONT_NAME,
         font_size=DEFAULT_FONT_SIZE,
@@ -575,12 +584,18 @@ def _build_vertical_plan(
 
 
 def _logical_width(item: SheetComponent) -> int:
+    """Columns an item occupies when placed in a horizontal flow.
+
+    Must match the actual placement extent so rigid sibling placements
+    (nested stacks, tables) reserve enough room. RowNode stays span-aware
+    horizontally because its cells flow left-to-right.
+    """
     if isinstance(item, CellNode):
-        return 1
+        return item.colspan
     if isinstance(item, RowNode):
-        return len(item.cells)
+        return sum(cell.colspan for cell in item.cells)
     if isinstance(item, ColumnNode):
-        return 1
+        return max((cell.colspan for cell in item.cells), default=1)
     if isinstance(item, TableNode):
         width = 0
         if item.header:
@@ -589,9 +604,14 @@ def _logical_width(item: SheetComponent) -> int:
             width = max(width, len(row.cells))
         return width
     if isinstance(item, SpacerNode):
-        return 1
+        return item.rows
     if isinstance(item, VerticalStackNode):
-        return max(_logical_width(child) for child in item.items)
+        # A spacer inside a vertical stack occupies rows, not columns.
+        widths = [
+            1 if isinstance(child, SpacerNode) else _logical_width(child)
+            for child in item.items
+        ]
+        return max(widths, default=1)
     if isinstance(item, HorizontalStackNode):
         total = sum(_logical_width(child) for child in item.items)
         total += item.gap * (len(item.items) - 1)
@@ -600,12 +620,19 @@ def _logical_width(item: SheetComponent) -> int:
 
 
 def _logical_height(item: SheetComponent) -> int:
+    """Rows an item occupies when placed in a vertical flow.
+
+    CellNode and RowNode stay height 1 on purpose: their rowspan spills
+    downward over subsequent flow content, which flows around the merged
+    region (see the vstack example in the README). ColumnNode is span-aware
+    because its cells stack vertically and must reserve their full extent.
+    """
     if isinstance(item, CellNode):
         return 1
     if isinstance(item, RowNode):
         return 1
     if isinstance(item, ColumnNode):
-        return len(item.cells)
+        return sum(cell.rowspan for cell in item.cells)
     if isinstance(item, TableNode):
         return len(item.rows) + (1 if item.header else 0)
     if isinstance(item, SpacerNode):
@@ -615,7 +642,12 @@ def _logical_height(item: SheetComponent) -> int:
         total += item.gap * (len(item.items) - 1)
         return total
     if isinstance(item, HorizontalStackNode):
-        return max(_logical_height(child) for child in item.items)
+        # A spacer inside a horizontal stack occupies columns, not rows.
+        heights = [
+            1 if isinstance(child, SpacerNode) else _logical_height(child)
+            for child in item.items
+        ]
+        return max(heights, default=1)
     assert_never(item)
 
 
@@ -701,14 +733,21 @@ def render_sheet(engine: Engine, node: SheetNode | ImportedSheetNode) -> None:
     max_row = plan.max_row
     max_col = plan.max_col
 
+    background_fill: str | None = None
     if node.background_color:
-        normalized = normalize_hex(node.background_color)
+        background_fill = normalize_hex(node.background_color)
         target_max_row = max(max_row, DEFAULT_BACKGROUND_MIN_ROWS)
         target_max_col = max(max_col, DEFAULT_BACKGROUND_MIN_COLS)
-        engine.fill_background(normalized, target_max_row, target_max_col)
+        engine.fill_background(background_fill, target_max_row, target_max_col)
 
     for placement in sorted(plan.cells, key=lambda cell: (cell.row, cell.col)):
         effective = _resolve(placement.styles)
+        if background_fill is not None and effective.fill_color is None:
+            # Keep the sheet background visible on populated cells too.
+            # xlsxwriter cell formats fully replace the blank background
+            # formats written by fill_background. Use replace() because
+            # _resolve results are cached and shared.
+            effective = replace(effective, fill_color=background_fill)
         if placement.colspan == 1 and placement.rowspan == 1:
             engine.write_cell(
                 placement.row,

@@ -185,6 +185,11 @@ class HybridEngine(Engine):
         3. Phase C: Reorders sheets to match declaration order.
         4. Phase D: Saves the final workbook.
         """
+        # Fast path: without imported sheets there is nothing to merge, so
+        # skip the openpyxl round-trip and save xlsxwriter output directly.
+        if not self._imports:
+            return self._xlsx_engine.save(target)
+
         # Phase A: Build base workbook from xlsxwriter output
         merged_wb = self._build_openpyxl_workbook_from_xlsx()
 

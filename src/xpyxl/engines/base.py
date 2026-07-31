@@ -4,18 +4,24 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO
 
 if TYPE_CHECKING:
     from ..styles import BorderStyleName
 
-__all__ = ["Engine", "EffectiveStyle", "SaveTarget"]
+__all__ = ["Engine", "EffectiveStyle", "SaveTarget", "normalize_cell_value"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class EffectiveStyle:
-    """Resolved style with all defaults applied."""
+    """Resolved style with all defaults applied.
+
+    Frozen so cached `_resolve` results cannot be mutated by callers and
+    poison subsequent cells. Use ``dataclasses.replace`` to adjust one.
+    """
 
     font_name: str
     font_size: float
@@ -41,6 +47,22 @@ class EffectiveStyle:
 
 
 SaveTarget = str | Path | BinaryIO
+
+
+def normalize_cell_value(value: object) -> object:
+    """Normalize a cell value for cross-engine consistency.
+
+    Supported scalars pass through unchanged. Bytes are decoded to text.
+    Everything else degrades to its ``str()`` form so every engine renders
+    identical output for the same input.
+    """
+    if value is None or isinstance(
+        value, (bool, int, float, Decimal, str, date, datetime, time, timedelta)
+    ):
+        return value
+    if isinstance(value, (bytes, bytearray)):
+        return bytes(value).decode("utf-8", errors="replace")
+    return str(value)
 
 
 class Engine(ABC):

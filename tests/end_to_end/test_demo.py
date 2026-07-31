@@ -100,6 +100,7 @@ def test_combined_workbook() -> None:
                                 name=new_name,
                                 source=sheet.source,
                                 source_sheet=sheet.source_sheet,
+                                show_gridlines=sheet.show_gridlines,
                             )
                         )
                     else:
@@ -108,6 +109,7 @@ def test_combined_workbook() -> None:
                                 name=new_name,
                                 items=sheet.items,
                                 background_color=sheet.background_color,
+                                show_gridlines=sheet.show_gridlines,
                             )
                         )
                     seen_sheet_names.add(new_name)

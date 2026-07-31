@@ -284,6 +284,106 @@ def test_imported_html_renders_existing_merged_ranges() -> None:
         assert "Region" in html
 
 
+@pytest.mark.parametrize("engine", ["openpyxl", "xlsxwriter", "hybrid"])
+def test_hstack_reserves_colspan_width(engine: str) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / f"{engine}.xlsx"
+
+        workbook = x.workbook()[
+            x.sheet("Spans")[
+                x.hstack(
+                    x.row()[x.cell(colspan=3)["a"], "b"],
+                    x.row()["c"],
+                )
+            ]
+        ]
+        workbook.save(output_path, engine=engine)  # type: ignore[arg-type]
+
+        ws = openpyxl.load_workbook(output_path)["Spans"]
+        merged_ranges = {str(merged_range) for merged_range in ws.merged_cells.ranges}
+
+        assert merged_ranges == {"A1:C1"}
+        assert ws["A1"].value == "a"
+        assert ws["D1"].value == "b"
+        assert ws["E1"].value == "c"
+
+
+@pytest.mark.parametrize("engine", ["openpyxl", "xlsxwriter", "hybrid"])
+def test_vstack_reserves_rowspan_height(engine: str) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / f"{engine}.xlsx"
+
+        workbook = x.workbook()[
+            x.sheet("Spans")[
+                x.vstack(
+                    x.col()[x.cell(rowspan=2)["a"], "b"],
+                    x.row()["c"],
+                )
+            ]
+        ]
+        workbook.save(output_path, engine=engine)  # type: ignore[arg-type]
+
+        ws = openpyxl.load_workbook(output_path)["Spans"]
+        merged_ranges = {str(merged_range) for merged_range in ws.merged_cells.ranges}
+
+        assert merged_ranges == {"A1:A2"}
+        assert ws["A1"].value == "a"
+        assert ws["A3"].value == "b"
+        assert ws["A4"].value == "c"
+        assert ws["B3"].value is None
+
+
+def test_nested_hstack_accounts_for_spacer_width() -> None:
+    workbook = x.workbook()[
+        x.sheet("Nested")[
+            x.hstack(
+                x.hstack(x.row()["x"], x.space(2), x.row()["y"]),
+                x.row()["z"],
+            )
+        ]
+    ]
+
+    ws = workbook.to_openpyxl()["Nested"]
+
+    assert ws["A1"].value == "x"
+    assert ws["D1"].value == "y"
+    assert ws["E1"].value == "z"
+
+
+def test_vertical_spacer_does_not_inflate_hstack_child_width() -> None:
+    workbook = x.workbook()[
+        x.sheet("Nested")[
+            x.hstack(
+                x.vstack(x.row()["x"], x.space(3), x.row()["y"]),
+                x.row()["z"],
+            )
+        ]
+    ]
+
+    ws = workbook.to_openpyxl()["Nested"]
+
+    assert ws["A1"].value == "x"
+    assert ws["A5"].value == "y"
+    assert ws["B1"].value == "z"
+
+
+def test_horizontal_spacer_does_not_inflate_vstack_child_height() -> None:
+    workbook = x.workbook()[
+        x.sheet("Nested")[
+            x.vstack(
+                x.hstack(x.row()["x"], x.space(2), x.row()["y"]),
+                x.row()["z"],
+            )
+        ]
+    ]
+
+    ws = workbook.to_openpyxl()["Nested"]
+
+    assert ws["A1"].value == "x"
+    assert ws["D1"].value == "y"
+    assert ws["A2"].value == "z"
+
+
 @pytest.mark.parametrize("engine", ["openpyxl", "hybrid"])
 def test_imported_sheet_can_override_gridlines(engine: str) -> None:
     with tempfile.TemporaryDirectory() as tmpdir:

@@ -293,5 +293,27 @@ def test_import_sheet_with_openpyxl_engine() -> None:
         assert len(_get_images(imported_ws)) == 1, "Imported sheet should have 1 image"
 
 
+@pytest.mark.skipif(not PIL_AVAILABLE, reason="Pillow not installed")
+@pytest.mark.parametrize("engine", ["openpyxl", "hybrid"])
+def test_repeated_import_of_same_image_sheet(engine: str) -> None:
+    """Importing the same image-bearing file twice must not crash or share streams."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        template_path = tmppath / "template_with_image.xlsx"
+        output_path = tmppath / f"output-{engine}.xlsx"
+
+        _create_template_with_image(template_path)
+
+        workbook = x.workbook()[
+            x.import_sheet(template_path, "ImageSheet", name="First"),
+            x.import_sheet(template_path, "ImageSheet", name="Second"),
+        ]
+        workbook.save(output_path, engine=engine)  # type: ignore[arg-type]
+
+        result_wb = openpyxl.load_workbook(output_path)
+        assert len(_get_images(result_wb["First"])) == 1
+        assert len(_get_images(result_wb["Second"])) == 1
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

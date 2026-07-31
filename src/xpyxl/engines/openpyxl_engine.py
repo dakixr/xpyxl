@@ -13,12 +13,25 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from ..styles import to_argb
-from .base import EffectiveStyle, Engine, SaveTarget
+from .base import EffectiveStyle, Engine, SaveTarget, normalize_cell_value
 
 if TYPE_CHECKING:
     from openpyxl.worksheet.worksheet import Worksheet
 
 __all__ = ["OpenpyxlEngine"]
+
+
+def _set_cell_value(cell: Any, value: object) -> None:
+    """Assign a cell value, normalizing for cross-engine consistency.
+
+    Uses the same supported-type policy as the xlsxwriter engine so output
+    never differs between backends.
+    """
+    normalized = normalize_cell_value(value)
+    try:
+        cell.value = normalized
+    except ValueError:
+        cell.value = str(normalized)
 
 
 class OpenpyxlEngine(Engine):
@@ -42,6 +55,9 @@ class OpenpyxlEngine(Engine):
         self._color_cache: dict[str, str] = {}
         # Cache column letters
         self._column_letter_cache: dict[int, str] = {}
+        # Cache source workbooks (per engine instance, i.e. per save) so
+        # importing several sheets from one file parses it only once
+        self._source_workbook_cache: dict[str, Workbook] = {}
 
     @classmethod
     def from_workbook(cls, workbook: Workbook) -> "OpenpyxlEngine":
@@ -57,6 +73,8 @@ class OpenpyxlEngine(Engine):
 
     def create_sheet(self, name: str, show_gridlines: bool = True) -> None:
         self._current_sheet = self._workbook.create_sheet(title=name)
+        if self._current_sheet is None:
+            raise RuntimeError(f"Failed to create sheet '{name}'")
         self._current_sheet.sheet_view.showGridLines = show_gridlines
 
     def write_cell(
@@ -71,7 +89,7 @@ class OpenpyxlEngine(Engine):
             raise RuntimeError("No sheet created. Call create_sheet() first.")
 
         cell = self._current_sheet.cell(row=row, column=col)
-        cell.value = value  # type: ignore[assignment]
+        _set_cell_value(cell, value)
         self._apply_style(cell, style, border_fallback_color)
 
     def write_merged_cell(
@@ -92,7 +110,7 @@ class OpenpyxlEngine(Engine):
             raise RuntimeError("No sheet created. Call create_sheet() first.")
 
         cell = self._current_sheet.cell(row=row, column=col)
-        cell.value = value  # type: ignore[assignment]
+        _set_cell_value(cell, value)
         self._apply_style(cell, style, border_fallback_color)
         self._current_sheet.merge_cells(
             start_row=row,
@@ -418,6 +436,30 @@ class OpenpyxlEngine(Engine):
         for row, dimension in source_ws.row_dimensions.items():
             _copy_dimension_attrs(dimension, target_ws.row_dimensions[row])
 
+        # Excel tables (best-effort). Table names are workbook-global and
+        # case-insensitive, so uniquify on collision instead of silently
+        # dropping the table.
+        existing_names = {
+            name.casefold()
+            for ws in self._workbook.worksheets
+            for name in ws.tables
+        }
+        for table in getattr(source_ws, "tables", {}).values():
+            try:
+                cloned = copy.deepcopy(table)
+                base = cloned.displayName or cloned.name or "Table"
+                candidate = base
+                suffix = 2
+                while candidate.casefold() in existing_names:
+                    candidate = f"{base}_{suffix}"
+                    suffix += 1
+                cloned.name = candidate
+                cloned.displayName = candidate
+                existing_names.add(candidate.casefold())
+                target_ws.add_table(cloned)
+            except Exception:
+                pass
+
         # Images (photos/pictures)
         self._copy_images(source_ws, target_ws)
 
@@ -446,13 +488,16 @@ class OpenpyxlEngine(Engine):
                     except Exception:
                         pass
 
-                # Create a new Image instance from the image data
-                new_img = Image(ref)
+                # Read into an independent buffer so repeated imports from a
+                # cached source workbook never share a consumed stream.
+                data = ref.read() if hasattr(ref, "read") else ref
+                new_img = Image(BytesIO(data) if isinstance(data, bytes) else data)
 
-                # Copy anchor (position in the sheet)
+                # Copy anchor (position in the sheet); deepcopy so each
+                # target sheet owns an independent anchor.
                 anchor = getattr(img, "anchor", None)
                 if anchor is not None:
-                    new_img.anchor = anchor
+                    new_img.anchor = copy.deepcopy(anchor)
 
                 # Copy dimensions if set
                 if getattr(img, "width", None) is not None:
@@ -552,10 +597,15 @@ class OpenpyxlEngine(Engine):
 
     def _load_source_workbook(self, source: SaveTarget | bytes | BinaryIO) -> Workbook:
         if isinstance(source, (str, Path)):
-            return load_workbook(
-                filename=source,
-                data_only=False,
-            )
+            key = str(source)
+            cached = self._source_workbook_cache.get(key)
+            if cached is None:
+                cached = load_workbook(
+                    filename=source,
+                    data_only=False,
+                )
+                self._source_workbook_cache[key] = cached
+            return cached
 
         buffer: BinaryIO
         if isinstance(source, bytes):
