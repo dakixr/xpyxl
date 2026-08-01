@@ -64,6 +64,47 @@ raw_bytes = workbook.save(engine="openpyxl")
 Path("report.xlsx").write_bytes(raw_bytes)
 ```
 
+## PDF and image export
+
+Export the same report directly to PDF or PNG with a locally installed
+Chromium or Google Chrome browser. This print renderer is independent from
+the interactive HTML engine and has no required Python dependencies.
+
+```python
+report.export("report.pdf")                         # Chromium is the default
+report.export("summary.png", sheet="Summary")
+
+pdf_bytes = report.export()                         # PDF bytes
+png_bytes = report.export(format="png", sheet=0)   # PNG bytes
+```
+
+The browser is discovered from `chromium`, `chromium-browser`,
+`google-chrome`, or `chrome`. Set `XPYXL_CHROMIUM_PATH` or pass
+`chromium_path=` to select another executable. PDF exports include every
+sheet by default; PNG exports require `sheet=` when a workbook has multiple
+sheets. Use `scale=` to produce higher-density PNG output.
+
+For a fully in-process renderer with no browser executable, install the
+optional ReportLab support and select it explicitly:
+
+```bash
+pip install "xpyxl[reportlab]"
+```
+
+```python
+report.export("report.pdf", renderer="reportlab")
+report.export("summary.png", renderer="reportlab", sheet="Summary", scale=2)
+```
+
+Both renderers consume the same resolved workbook layout and use the same
+sheet selection, canvas dimensions, cell dimensions, and value formatting.
+Chromium remains the default and visual reference implementation; ReportLab
+uses ReportLab for PDF and its Pillow dependency for PNG, entirely within the
+Python process.
+
+The Chromium integration tests are opt-in because they require a locally
+installed browser: `XPYXL_TEST_CHROMIUM=1 uv run pytest`.
+
 ## Importing existing sheets
 
 Pull in a static sheet from an existing Excel file:
