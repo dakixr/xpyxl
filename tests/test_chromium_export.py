@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
 import tempfile
 from io import BytesIO
 from pathlib import Path
@@ -11,7 +12,7 @@ import pytest
 from PIL import Image
 
 import xpyxl as x
-from xpyxl.exporting.chromium import _render_document
+from xpyxl.exporting.chromium import _render_document, _run_chromium
 from xpyxl.exporting.model import build_workbook_layout
 
 
@@ -50,6 +51,31 @@ def test_print_document_escapes_font_names_as_css_strings() -> None:
 
     assert 'font-family:&quot;Bad\\n\\&quot;;background:red&quot;' in html
     assert 'font-family:&quot;Bad\n' not in html
+
+
+def test_chromium_retries_only_when_sandbox_is_unavailable(monkeypatch, tmp_path) -> None:
+    calls: list[list[str]] = []
+    output_path = tmp_path / "output.pdf"
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        if len(calls) == 1:
+            return subprocess.CompletedProcess(
+                command,
+                1,
+                stdout="",
+                stderr="No usable sandbox",
+            )
+        output_path.write_bytes(b"%PDF")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    result = _run_chromium(["chrome", "file:///report.html"], output_path)
+
+    assert result.returncode == 0
+    assert len(calls) == 2
+    assert "--no-sandbox" in calls[1]
+    assert calls[1][-1] == "file:///report.html"
 
 
 def test_export_format_is_inferred_from_path() -> None:
