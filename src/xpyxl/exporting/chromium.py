@@ -62,7 +62,12 @@ class ChromiumRenderer:
                 scale=scale,
                 user_data_directory=working_directory / "profile",
             )
-            completed = _run_chromium(command, output_path)
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
             if completed.returncode != 0 or not output_path.exists():
                 details = (completed.stderr or completed.stdout).strip()
                 raise RuntimeError(
@@ -91,8 +96,7 @@ class ChromiumRenderer:
             "--hide-scrollbars",
             f"--user-data-dir={user_data_directory}",
         ]
-        if getattr(os, "geteuid", lambda: -1)() == 0:
-            command.append("--no-sandbox")
+        command.append("--no-sandbox")
         if format == "pdf":
             command.extend(
                 [
@@ -115,28 +119,6 @@ class ChromiumRenderer:
             )
         command.append(html_path.resolve().as_uri())
         return command
-
-
-def _run_chromium(command: list[str], output_path: Path) -> subprocess.CompletedProcess[str]:
-    completed = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if (
-        (completed.returncode != 0 or not output_path.exists())
-        and "--no-sandbox" not in command
-        and "no usable sandbox" in (completed.stderr + completed.stdout).lower()
-    ):
-        retry_command = [*command[:-1], "--no-sandbox", command[-1]]
-        completed = subprocess.run(
-            retry_command,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    return completed
 
 
 def _find_chromium(executable: str | Path | None) -> str:
