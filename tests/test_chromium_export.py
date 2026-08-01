@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import tempfile
 from io import BytesIO
@@ -16,6 +17,8 @@ from xpyxl.exporting.model import build_workbook_layout
 
 
 def _browser() -> str | None:
+    if os.environ.get("XPYXL_TEST_CHROMIUM") != "1":
+        return None
     for name in ("chromium", "chromium-browser", "google-chrome", "chrome"):
         if path := shutil.which(name):
             return path

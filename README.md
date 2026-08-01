@@ -102,6 +102,9 @@ Chromium remains the default and visual reference implementation; ReportLab
 uses ReportLab for PDF and its Pillow dependency for PNG, entirely within the
 Python process.
 
+The Chromium integration tests are opt-in because they require a locally
+installed browser: `XPYXL_TEST_CHROMIUM=1 uv run pytest`.
+
 ## Importing existing sheets
 
 Pull in a static sheet from an existing Excel file:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
 from io import BytesIO
 from pathlib import Path
@@ -82,6 +83,8 @@ def test_reportlab_writes_path_and_stream() -> None:
 
 
 def test_reportlab_and_chromium_pngs_have_matching_geometry() -> None:
+    if os.environ.get("XPYXL_TEST_CHROMIUM") != "1":
+        pytest.skip("Set XPYXL_TEST_CHROMIUM=1 to run Chromium parity tests")
     try:
         chromium = _fixture_workbook().export(format="png", renderer="chromium")
     except FileNotFoundError:
