@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, Literal
 
 from openpyxl import Workbook as _OpenpyxlWorkbook
 
@@ -55,3 +55,56 @@ class Workbook:
         for sheet in self._node.sheets:
             render_sheet(engine, sheet)
         return engine._workbook
+
+    def export(
+        self,
+        target: str | Path | BinaryIO | None = None,
+        *,
+        format: Literal["pdf", "png"] | None = None,
+        renderer: Literal["chromium", "reportlab"] = "chromium",
+        sheet: str | int | None = None,
+        scale: float = 1.0,
+        chromium_path: str | Path | None = None,
+    ) -> bytes | None:
+        """Export the workbook as a PDF or PNG document.
+
+        The output format is inferred from a path target when possible and
+        otherwise defaults to PDF. PDF exports include every sheet unless
+        ``sheet`` is supplied. PNG exports contain one selected sheet. Chromium
+        is the default renderer; ``reportlab`` is the fully in-process option.
+        """
+        from .exporting import (
+            ChromiumRenderer,
+            ReportLabRenderer,
+            build_workbook_layout,
+        )
+
+        resolved_format = _resolve_export_format(target, format)
+        if renderer == "chromium":
+            export_renderer = ChromiumRenderer(chromium_path)
+        elif renderer == "reportlab":
+            export_renderer = ReportLabRenderer()
+        else:
+            raise ValueError(f"Unknown export renderer: {renderer}")
+        layout = build_workbook_layout(self._node)
+        return export_renderer.render(
+            layout,
+            target,
+            format=resolved_format,
+            sheet=sheet,
+            scale=scale,
+        )
+
+
+def _resolve_export_format(
+    target: str | Path | BinaryIO | None,
+    format: Literal["pdf", "png"] | None,
+) -> Literal["pdf", "png"]:
+    if format is not None:
+        return format
+    if isinstance(target, (str, Path)):
+        suffix = Path(target).suffix.lower().lstrip(".")
+        if suffix in ("pdf", "png"):
+            return suffix
+        raise ValueError("Export target must end in .pdf or .png")
+    return "pdf"

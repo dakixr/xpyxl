@@ -1,6 +1,6 @@
 [project]
 name = "xpyxl"
-version = "0.9.0"
+version = "0.10.0"
 description = "Create styled excel reports with declarative python."
 readme = "README.md"
 authors = [{ name = "dakixr", email = "dakixr@gmail.com" }]
@@ -21,11 +21,17 @@ Homepage = "https://github.com/dakixr/xpyxl"
 Repository = "https://github.com/dakixr/xpyxl"
 Issues = "https://github.com/dakixr/xpyxl/issues"
 
+[project.optional-dependencies]
+reportlab = [
+    "reportlab>=4.0.0",
+]
+
 [dependency-groups]
 dev = [
     "pillow>=12.1.0",
     "pyright>=1.1.406",
     "pytest>=9.0.2",
+    "reportlab>=4.0.0",
 ]
 
 [build-system]
