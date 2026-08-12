@@ -295,7 +295,10 @@ class OpenpyxlEngine(Engine):
             min_row=1, max_row=max_row, min_col=1, max_col=max_col
         ):
             for cell in row:
-                cell.fill = sheet_fill
+                # Background fill may run after component-wise rendering, so
+                # preserve explicit cell fills that have already been applied.
+                if cell.fill.fill_type is None:
+                    cell.fill = sheet_fill
 
     def _ensure_named_styles(self, source_wb: Workbook) -> None:
         """Ensure named styles used by imported sheets exist in the destination workbook."""

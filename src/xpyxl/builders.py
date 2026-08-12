@@ -104,31 +104,6 @@ def _coerce_row(value: object, extra_styles: Sequence[Style] = ()) -> RowNode:
     return RowNode(cells=cells, styles=tuple(extra_styles))
 
 
-def _rows_from_records(
-    records: Sequence[Mapping[ColumnKey, CellSource]],
-    *,
-    header_styles: Sequence[Style],
-    column_order: Sequence[ColumnKey] | None,
-) -> tuple[tuple[RowNode, ...], RowNode | None]:
-    if not records and not column_order:
-        return (), None
-
-    columns: list[ColumnKey] = list(column_order or ())
-    seen = set(columns)
-    for record in records:
-        for key in record.keys():
-            if key not in seen:
-                seen.add(key)
-                columns.append(key)
-
-    header_node = _coerce_row(columns, extra_styles=header_styles) if columns else None
-    body_rows = tuple(
-        RowNode(cells=tuple(_ensure_cell(record.get(col)) for col in columns))
-        for record in records
-    )
-    return body_rows, header_node
-
-
 class _RecordRows(Sequence[RowNode]):
     """Create row nodes on demand from a re-iterable record sequence."""
 
@@ -205,17 +180,15 @@ class _SheetItems(Sequence[SheetItem]):
         raise TypeError(msg)
 
 
-def _streaming_record_rows(
+def _record_rows(
     rows: object,
     *,
     header_styles: Sequence[Style],
     column_order: Sequence[ColumnKey] | None,
 ) -> tuple[Sequence[RowNode], RowNode | None] | None:
-    """Keep non-container record sequences lazy instead of duplicating every cell."""
-    if not isinstance(rows, Sequence) or isinstance(rows, (list, tuple, str, bytes)):
+    """Map repeatable records to row nodes without duplicating every cell."""
+    if not isinstance(rows, Sequence) or isinstance(rows, (str, bytes, bytearray)):
         return None
-    if not rows:
-        return (), None
 
     columns: list[ColumnKey] = list(column_order or ())
     seen = set(columns)
@@ -360,30 +333,20 @@ class TableBuilder(_BuilderBase):
                 column_order=column_order,
             )
         else:
-            streaming_rows = _streaming_record_rows(
+            record_rows = _record_rows(
                 rows,
                 header_styles=self._header_styles,
                 column_order=column_order,
             )
-            if streaming_rows is not None:
-                row_nodes, derived_header = streaming_rows
+            if record_rows is not None:
+                row_nodes, derived_header = record_rows
                 return TableNode(
                     rows=row_nodes,
                     styles=self._styles,
                     header=derived_header,
                 )
             tupled_rows = _as_tuple(rows)
-            if tupled_rows and all(isinstance(item, Mapping) for item in tupled_rows):
-                typed_records = cast(
-                    tuple[Mapping[ColumnKey, CellSource], ...], tupled_rows
-                )
-                row_nodes, derived_header = _rows_from_records(
-                    typed_records,
-                    header_styles=self._header_styles,
-                    column_order=column_order,
-                )
-            else:
-                row_nodes = tuple(_coerce_row(row) for row in tupled_rows)
+            row_nodes = tuple(_coerce_row(row) for row in tupled_rows)
 
         return TableNode(rows=row_nodes, styles=self._styles, header=derived_header)
 

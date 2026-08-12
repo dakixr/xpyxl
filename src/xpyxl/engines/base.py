@@ -80,7 +80,6 @@ class Engine(ABC):
 
     def __init__(self) -> None:
         """Initialize engine state without binding to an output target."""
-        self.streams_rows = False
 
     @abstractmethod
     def create_sheet(self, name: str, show_gridlines: bool = True) -> None:
@@ -150,6 +149,10 @@ class Engine(ABC):
             height: Row height in points
         """
         ...
+
+    def write_spacer_row(self, row: int, height: float) -> None:
+        """Write an otherwise-empty row with an explicit height."""
+        self.set_row_height(row, height)
 
     @abstractmethod
     def fill_background(

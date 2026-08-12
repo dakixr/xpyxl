@@ -33,7 +33,6 @@ class HybridEngine(Engine):
 
     def __init__(self, *, constant_memory: bool = True) -> None:
         super().__init__()
-        self.streams_rows = constant_memory
         self._xlsx_engine = XlsxWriterEngine(constant_memory=constant_memory)
         # Deferred import operations: (source, source_sheet_name, dest_name, show_gridlines)
         self._imports: list[
@@ -89,6 +88,10 @@ class HybridEngine(Engine):
     def set_row_height(self, row: int, height: float) -> None:
         """Set row height, delegating to xlsxwriter."""
         self._xlsx_engine.set_row_height(row, height)
+
+    def write_spacer_row(self, row: int, height: float) -> None:
+        """Write an empty sized row, delegating to xlsxwriter."""
+        self._xlsx_engine.write_spacer_row(row, height)
 
     def fill_background(
         self,

@@ -823,6 +823,39 @@ def _apply_plan_spacers(
             row_heights[row_index] = max(row_heights.get(row_index, 0.0), height)
 
 
+def _iter_plan_rows(
+    plan: _GridPlan,
+    row_heights: Mapping[int, float],
+    *,
+    row_offset: int,
+) -> Iterator[tuple[int, Iterator[_PlacedCell]]]:
+    """Merge populated and spacer-only rows into one ordered event stream."""
+    cell_groups = iter(
+        groupby(_iter_plan_cells(plan), key=lambda cell: cell.row + row_offset)
+    )
+    next_cells = next(cell_groups, None)
+    spacer_rows = iter(sorted(row_heights))
+    next_spacer = next(spacer_rows, None)
+
+    while next_cells is not None or next_spacer is not None:
+        cell_row = next_cells[0] if next_cells is not None else None
+        if cell_row is None:
+            row = next_spacer
+        elif next_spacer is None:
+            row = cell_row
+        else:
+            row = min(cell_row, next_spacer)
+        assert row is not None
+
+        if next_cells is not None and cell_row == row:
+            yield row, next_cells[1]
+            next_cells = next(cell_groups, None)
+        else:
+            yield row, iter(())
+        if next_spacer == row:
+            next_spacer = next(spacer_rows, None)
+
+
 def _render_plan_cells(
     engine: Engine,
     plan: _GridPlan,
@@ -833,31 +866,11 @@ def _render_plan_cells(
     row_offset: int = 0,
     col_offset: int = 0,
 ) -> None:
-    cell_groups = iter(
-        groupby(
-            _iter_plan_cells(plan), key=lambda cell: cell.row + row_offset
-        )
-    )
-    next_cells = next(cell_groups, None)
-    spacer_rows = iter(sorted(row_heights))
-    next_spacer = next(spacer_rows, None)
-
-    while next_cells is not None or next_spacer is not None:
-        cell_row = next_cells[0] if next_cells is not None else None
-        if cell_row is None:
-            row_index = next_spacer
-        elif next_spacer is None:
-            row_index = cell_row
-        else:
-            row_index = min(cell_row, next_spacer)
-        assert row_index is not None
-
-        row_group: Iterator[_PlacedCell]
-        if next_cells is not None and cell_row == row_index:
-            row_group = next_cells[1]
-        else:
-            row_group = iter(())
-
+    for row_index, row_group in _iter_plan_rows(
+        plan,
+        row_heights,
+        row_offset=row_offset,
+    ):
         resolved_row: list[tuple[_PlacedCell, EffectiveStyle, int, int]] = []
         affected_rows: set[int] = set()
         for placement in row_group:
@@ -885,7 +898,7 @@ def _render_plan_cells(
         # XlsxWriter's constant-memory mode requires row properties to be set
         # before the row is flushed. Other engines also accept this ordering.
         if not affected_rows:
-            engine.set_row_height(row_index, row_heights[row_index])
+            engine.write_spacer_row(row_index, row_heights[row_index])
         else:
             for affected_row in sorted(affected_rows):
                 engine.set_row_height(affected_row, row_heights[affected_row])
@@ -910,72 +923,31 @@ def _render_plan_cells(
                     DEFAULT_BORDER_COLOR,
                 )
 
-        if next_cells is not None and cell_row == row_index:
-            next_cells = next(cell_groups, None)
-        if next_spacer == row_index:
-            next_spacer = next(spacer_rows, None)
         # Row properties are already applied to the engine. Retain only
         # heights for future rows (for example, the tail of a rowspan).
         row_heights.pop(row_index, None)
 
 
-def _render_materialized_sheet(engine: Engine, node: SheetNode) -> None:
-    col_widths: dict[int, float] = {}
-    row_heights: dict[int, float] = {}
-    plan = _build_vertical_plan(node.items, extra_styles=(), gap=0)
-    background_fill = (
-        normalize_hex(node.background_color) if node.background_color else None
-    )
+def _iter_sheet_plans(
+    node: SheetNode,
+    *,
+    full_sheet_plan: bool,
+) -> Iterator[tuple[_GridPlan, int]]:
+    """Yield positioned plans, retaining at most one component when possible."""
+    if full_sheet_plan:
+        yield _build_vertical_plan(node.items, extra_styles=(), gap=0), 0
+        return
 
-    _apply_plan_spacers(plan, row_heights)
-    if background_fill:
-        engine.fill_background(
-            background_fill,
-            max(plan.max_row, DEFAULT_BACKGROUND_MIN_ROWS),
-            max(plan.max_col, DEFAULT_BACKGROUND_MIN_COLS),
-        )
-    _render_plan_cells(
-        engine,
-        plan,
-        col_widths,
-        row_heights,
-        background_fill,
-    )
-    _apply_dimensions(engine, col_widths)
-
-
-def _render_streaming_sheet(engine: Engine, node: SheetNode) -> None:
-    """Plan and release each top-level vertical component independently."""
-    col_widths: dict[int, float] = {}
-    background_fill = (
-        normalize_hex(node.background_color) if node.background_color else None
-    )
     row_cursor = 1
     max_row = 0
-    max_col = 0
-
     for item in node.items:
         if isinstance(item, SpacerNode):
             row_cursor = max(row_cursor, max_row + 1)
 
         plan = _build_item_plan(item)
         row_offset = row_cursor - 1
-        row_heights: dict[int, float] = {}
-        _apply_plan_spacers(
-            plan,
-            row_heights,
-            row_offset=row_offset,
-        )
-        _render_plan_cells(
-            engine,
-            plan,
-            col_widths,
-            row_heights,
-            background_fill,
-            row_offset=row_offset,
-        )
+        yield plan, row_offset
         max_row = max(max_row, row_offset + plan.max_row)
-        max_col = max(max_col, plan.max_col)
 
         if isinstance(item, (CellNode, RowNode)):
             row_cursor += 1
@@ -987,16 +959,34 @@ def _render_streaming_sheet(engine: Engine, node: SheetNode) -> None:
                 child_height = max(child_height, plan.max_row)
             row_cursor += child_height
 
-    if background_fill:
-        engine.fill_background(
-            background_fill,
-            max(max_row, DEFAULT_BACKGROUND_MIN_ROWS),
-            max(max_col, DEFAULT_BACKGROUND_MIN_COLS),
-        )
-    _apply_dimensions(engine, col_widths)
+
+def requires_full_sheet_plan(node: SheetNode | ImportedSheetNode) -> bool:
+    """Whether top-level components can overlap through a multi-row merge."""
+    if isinstance(node, ImportedSheetNode):
+        return False
+    return any(_component_has_rowspan(item) for item in node.items)
 
 
-def render_sheet(engine: Engine, node: SheetNode | ImportedSheetNode) -> None:
+def _component_has_rowspan(item: SheetComponent) -> bool:
+    if isinstance(item, CellNode):
+        return item.rowspan > 1
+    if isinstance(item, (RowNode, ColumnNode)):
+        return any(cell.rowspan > 1 for cell in item.cells)
+    if isinstance(item, TableNode):
+        # Merged table cells are invalid and rejected during rendering. Avoid
+        # walking millions of table rows merely to select a rendering plan.
+        return False
+    if isinstance(item, (VerticalStackNode, HorizontalStackNode)):
+        return any(_component_has_rowspan(child) for child in item.items)
+    return False
+
+
+def render_sheet(
+    engine: Engine,
+    node: SheetNode | ImportedSheetNode,
+    *,
+    full_sheet_plan: bool | None = None,
+) -> None:
     """Render a sheet node using the given engine."""
     if isinstance(node, ImportedSheetNode):
         engine.copy_sheet(
@@ -1008,8 +998,36 @@ def render_sheet(engine: Engine, node: SheetNode | ImportedSheetNode) -> None:
         return
 
     engine.create_sheet(node.name, show_gridlines=node.show_gridlines)
+    full_plan = (
+        requires_full_sheet_plan(node)
+        if full_sheet_plan is None
+        else full_sheet_plan
+    )
+    col_widths: dict[int, float] = {}
+    background_fill = (
+        normalize_hex(node.background_color) if node.background_color else None
+    )
+    max_row = 0
+    max_col = 0
 
-    if engine.streams_rows and not isinstance(node.items, tuple):
-        _render_streaming_sheet(engine, node)
-    else:
-        _render_materialized_sheet(engine, node)
+    for plan, row_offset in _iter_sheet_plans(node, full_sheet_plan=full_plan):
+        row_heights: dict[int, float] = {}
+        _apply_plan_spacers(plan, row_heights, row_offset=row_offset)
+        _render_plan_cells(
+            engine,
+            plan,
+            col_widths,
+            row_heights,
+            background_fill,
+            row_offset=row_offset,
+        )
+        max_row = max(max_row, row_offset + plan.max_row)
+        max_col = max(max_col, plan.max_col)
+
+    if background_fill:
+        engine.fill_background(
+            background_fill,
+            max(max_row, DEFAULT_BACKGROUND_MIN_ROWS),
+            max(max_col, DEFAULT_BACKGROUND_MIN_COLS),
+        )
+    _apply_dimensions(engine, col_widths)

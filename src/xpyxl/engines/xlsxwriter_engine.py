@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, BinaryIO
 import xlsxwriter
 
 from ..styles import normalize_hex
+from ._xlsxwriter_streaming import ConstantMemoryTracker
 from .base import EffectiveStyle, Engine, SaveTarget, normalize_cell_value
 
 if TYPE_CHECKING:
@@ -51,7 +52,6 @@ class XlsxWriterEngine(Engine):
 
     def __init__(self, *, constant_memory: bool = True) -> None:
         super().__init__()
-        self.streams_rows = constant_memory
         temporary = tempfile.NamedTemporaryFile(
             prefix="xpyxl-", suffix=".xlsx", delete=False
         )
@@ -70,13 +70,20 @@ class XlsxWriterEngine(Engine):
         self._current_sheet: Worksheet | None = None
         # Cache format objects to avoid duplicates
         self._format_cache: dict[tuple[Any, ...], Format] = {}
+        self._spacer_format = self._workbook.add_format()
         self._closed = False
-        self._rows_released = 0
+        self._memory_tracker: ConstantMemoryTracker | None = None
 
     def create_sheet(self, name: str, show_gridlines: bool = True) -> None:
-        self._compact_row_metadata()
+        if self._memory_tracker:
+            self._memory_tracker.compact()
         self._current_sheet = self._workbook.add_worksheet(name)
         self._current_sheet.hide_gridlines(0 if show_gridlines else 2)
+        self._memory_tracker = (
+            ConstantMemoryTracker(self._current_sheet)
+            if self._current_sheet.constant_memory
+            else None
+        )
 
     def _get_format(
         self, style: EffectiveStyle, border_fallback_color: str
@@ -203,8 +210,6 @@ class XlsxWriterEngine(Engine):
         # Convert from 1-based to 0-based indexing
         row_idx = row - 1
         col_idx = col - 1
-        previous_row = self._current_sheet.previous_row
-
         fmt = self._get_format(style, border_fallback_color)
 
         # xlsxwriter has different write methods for different types
@@ -224,39 +229,6 @@ class XlsxWriterEngine(Engine):
             self._current_sheet.write_formula(row_idx, col_idx, value, fmt)
         else:
             self._current_sheet.write_string(row_idx, col_idx, str(value), fmt)
-        self._release_flushed_row(previous_row)
-
-    def _release_flushed_row(self, previous_row: int) -> None:
-        """Drop XlsxWriter row metadata after its XML has been streamed."""
-        if self._current_sheet is None or not self._current_sheet.constant_memory:
-            return
-        if self._current_sheet.previous_row <= previous_row:
-            return
-        # XlsxWriter's constant-memory writer flushes the previous row to its
-        # XML tempfile but retains height metadata in these dictionaries. The
-        # renderer never adds images, so old row sizes are no longer needed.
-        self._current_sheet.set_rows.pop(previous_row, None)
-        self._current_sheet.row_sizes.pop(previous_row, None)
-        min_col = self._current_sheet.dim_colmin or 0
-        max_col = self._current_sheet.dim_colmax or min_col
-        for col_idx in range(min_col, max_col + 1):
-            self._current_sheet.merged_cells.pop((previous_row, col_idx), None)
-        self._rows_released += 1
-        if self._rows_released % 1024 == 0:
-            self._compact_row_metadata()
-
-    def _compact_row_metadata(self) -> None:
-        """Shrink dictionaries whose streamed entries have been removed."""
-        if self._current_sheet is None or not self._current_sheet.constant_memory:
-            return
-        for metadata in (
-            self._current_sheet.set_rows,
-            self._current_sheet.row_sizes,
-            self._current_sheet.merged_cells,
-        ):
-            retained = dict(metadata)
-            metadata.clear()
-            metadata.update(retained)
 
     def write_merged_cell(
         self,
@@ -304,14 +276,16 @@ class XlsxWriterEngine(Engine):
 
         # Convert from 1-based to 0-based indexing
         row_idx = row - 1
-        previous_row = self._current_sheet.previous_row
         self._current_sheet.set_row(row_idx, height)
-        if self._current_sheet.constant_memory and row_idx > previous_row:
-            # Advance the row stream even for spacer-only rows. XlsxWriter's
-            # public set_row() records metadata but doesn't flush the prior
-            # row, so without this its optimized writer drops styled gaps.
-            self._current_sheet._write_single_row(row_idx)  # pyright: ignore[reportPrivateUsage]
-            self._release_flushed_row(previous_row)
+        if self._memory_tracker:
+            self._memory_tracker.advance_to(row_idx)
+
+    def write_spacer_row(self, row: int, height: float) -> None:
+        if self._current_sheet is None:
+            raise RuntimeError("No sheet created. Call create_sheet() first.")
+        self.set_row_height(row, height)
+        if self._memory_tracker:
+            self._memory_tracker.advance_to(row - 1, self._spacer_format)
 
     def fill_background(
         self,
@@ -352,7 +326,8 @@ class XlsxWriterEngine(Engine):
 
     def save(self, target: SaveTarget | None = None) -> bytes | None:
         if not self._closed:
-            self._compact_row_metadata()
+            if self._memory_tracker:
+                self._memory_tracker.compact()
             self._workbook.close()
             self._closed = True
 

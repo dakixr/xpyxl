@@ -6,18 +6,8 @@ from typing import BinaryIO, Literal
 from openpyxl import Workbook as _OpenpyxlWorkbook
 
 from .engines import EngineName, get_engine
-from .nodes import (
-    CellNode,
-    ColumnNode,
-    HorizontalStackNode,
-    RowNode,
-    SheetComponent,
-    SheetNode,
-    TableNode,
-    VerticalStackNode,
-    WorkbookNode,
-)
-from .render import render_sheet
+from .nodes import WorkbookNode
+from .render import render_sheet, requires_full_sheet_plan
 
 __all__ = ["Workbook"]
 
@@ -47,15 +37,15 @@ class Workbook:
                 - "xlsxwriter": Fast generation engine. Does NOT support import_sheet;
                   use "hybrid" or "openpyxl" for that.
         """
-        constant_memory = not any(
-            _component_has_rowspan(item)
-            for sheet in self._node.sheets
-            if isinstance(sheet, SheetNode)
-            for item in sheet.items
+        sheet_plans = tuple(
+            (sheet, requires_full_sheet_plan(sheet)) for sheet in self._node.sheets
         )
-        engine_instance = get_engine(engine, constant_memory=constant_memory)
-        for sheet in self._node.sheets:
-            render_sheet(engine_instance, sheet)
+        engine_instance = get_engine(
+            engine,
+            constant_memory=not any(full_plan for _, full_plan in sheet_plans),
+        )
+        for sheet, full_plan in sheet_plans:
+            render_sheet(engine_instance, sheet, full_sheet_plan=full_plan)
         return engine_instance.save(target)
 
     def to_openpyxl(self) -> _OpenpyxlWorkbook:
@@ -124,18 +114,3 @@ def _resolve_export_format(
             return suffix
         raise ValueError("Export target must end in .pdf or .png")
     return "pdf"
-
-
-def _component_has_rowspan(item: SheetComponent) -> bool:
-    """Return whether valid rendering needs writes to more than one row."""
-    if isinstance(item, CellNode):
-        return item.rowspan > 1
-    if isinstance(item, (RowNode, ColumnNode)):
-        return any(cell.rowspan > 1 for cell in item.cells)
-    if isinstance(item, TableNode):
-        # Merged table cells are invalid and rejected by the renderer. Avoid
-        # eagerly traversing potentially millions of lazy table rows here.
-        return False
-    if isinstance(item, (VerticalStackNode, HorizontalStackNode)):
-        return any(_component_has_rowspan(child) for child in item.items)
-    return False
