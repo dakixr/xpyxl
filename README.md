@@ -66,19 +66,23 @@ Path("report.xlsx").write_bytes(raw_bytes)
 
 ### Large-workbook benchmark
 
-The process-isolated benchmark measures wall time and operating-system peak
-RSS while generating 2.4 million data cells across three styled sheets:
+The process-isolated benchmarks measure wall time and operating-system peak
+RSS. The first generates 2.4 million table cells across three styled sheets;
+the second generates 100,000 custom report components containing 5.4 million
+mixed cells across nested rows, columns, stacks, merges, formulas, and spacers:
 
 ```bash
 uv run python scripts/benchmark_rss.py
+uv run python scripts/benchmark_components_rss.py
 ```
 
 Use `--rows-per-sheet`, `--sheets`, `--engine`, and `--runs` to change the
-workload; add `--json` for machine-readable results. For generated datasets,
-passing a custom re-iterable `Sequence` of records lets `table()` create rows
-on demand. One-shot iterators cannot be streamed because layout and rendering
-require repeatable passes over the data; see `GeneratedRecords` in the
-benchmark for a complete example.
+table workload, or `--components` for the component workload; add `--json` for
+machine-readable results. For generated datasets, passing a custom re-iterable
+`Sequence` of records to `table()` or components to `sheet()` lets xpyxl create,
+render, and release content on demand. One-shot iterators cannot be streamed
+because validation and rendering require repeatable passes over the data; see
+`GeneratedRecords` and `GeneratedComponents` in the benchmarks for examples.
 
 ## PDF and image export
 

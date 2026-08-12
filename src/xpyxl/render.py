@@ -803,10 +803,197 @@ def _iter_plan_cells(plan: _GridPlan) -> Iterator[_PlacedCell]:
 def _apply_dimensions(
     engine: Engine,
     col_widths: Mapping[int, float],
-    row_heights: Mapping[int, float],
 ) -> None:
     for column_index, width in col_widths.items():
         engine.set_column_width(column_index, width)
+
+
+def _apply_plan_spacers(
+    plan: _GridPlan,
+    row_heights: dict[int, float],
+    *,
+    row_offset: int = 0,
+) -> None:
+    for spacer in plan.spacers:
+        if spacer.direction == "horizontal":
+            continue
+        height = spacer.height if spacer.height is not None else _default_row_height()
+        for offset in range(spacer.rows):
+            row_index = row_offset + spacer.row + offset
+            row_heights[row_index] = max(row_heights.get(row_index, 0.0), height)
+
+
+def _render_plan_cells(
+    engine: Engine,
+    plan: _GridPlan,
+    col_widths: dict[int, float],
+    row_heights: dict[int, float],
+    background_fill: str | None,
+    *,
+    row_offset: int = 0,
+    col_offset: int = 0,
+) -> None:
+    cell_groups = iter(
+        groupby(
+            _iter_plan_cells(plan), key=lambda cell: cell.row + row_offset
+        )
+    )
+    next_cells = next(cell_groups, None)
+    spacer_rows = iter(sorted(row_heights))
+    next_spacer = next(spacer_rows, None)
+
+    while next_cells is not None or next_spacer is not None:
+        cell_row = next_cells[0] if next_cells is not None else None
+        if cell_row is None:
+            row_index = next_spacer
+        elif next_spacer is None:
+            row_index = cell_row
+        else:
+            row_index = min(cell_row, next_spacer)
+        assert row_index is not None
+
+        row_group: Iterator[_PlacedCell]
+        if next_cells is not None and cell_row == row_index:
+            row_group = next_cells[1]
+        else:
+            row_group = iter(())
+
+        resolved_row: list[tuple[_PlacedCell, EffectiveStyle, int, int]] = []
+        affected_rows: set[int] = set()
+        for placement in row_group:
+            actual_row = placement.row + row_offset
+            actual_col = placement.col + col_offset
+            effective = _resolve(placement.styles)
+            if background_fill is not None and effective.fill_color is None:
+                # Keep the sheet background visible on populated cells too.
+                # Use replace() because _resolve results are cached and shared.
+                effective = replace(effective, fill_color=background_fill)
+            _update_dimensions(
+                col_widths=col_widths,
+                row_heights=row_heights,
+                column_index=actual_col,
+                row_index=actual_row,
+                value=placement.value,
+                style=effective,
+                colspan=placement.colspan,
+                rowspan=placement.rowspan,
+                prefer_height=placement.prefer_height,
+            )
+            affected_rows.update(range(actual_row, actual_row + placement.rowspan))
+            resolved_row.append((placement, effective, actual_row, actual_col))
+
+        # XlsxWriter's constant-memory mode requires row properties to be set
+        # before the row is flushed. Other engines also accept this ordering.
+        if not affected_rows:
+            engine.set_row_height(row_index, row_heights[row_index])
+        else:
+            for affected_row in sorted(affected_rows):
+                engine.set_row_height(affected_row, row_heights[affected_row])
+
+        for placement, effective, actual_row, actual_col in resolved_row:
+            if placement.colspan == 1 and placement.rowspan == 1:
+                engine.write_cell(
+                    actual_row,
+                    actual_col,
+                    placement.value,
+                    effective,
+                    DEFAULT_BORDER_COLOR,
+                )
+            else:
+                engine.write_merged_cell(
+                    actual_row,
+                    actual_col,
+                    placement.rowspan,
+                    placement.colspan,
+                    placement.value,
+                    effective,
+                    DEFAULT_BORDER_COLOR,
+                )
+
+        if next_cells is not None and cell_row == row_index:
+            next_cells = next(cell_groups, None)
+        if next_spacer == row_index:
+            next_spacer = next(spacer_rows, None)
+        # Row properties are already applied to the engine. Retain only
+        # heights for future rows (for example, the tail of a rowspan).
+        row_heights.pop(row_index, None)
+
+
+def _render_materialized_sheet(engine: Engine, node: SheetNode) -> None:
+    col_widths: dict[int, float] = {}
+    row_heights: dict[int, float] = {}
+    plan = _build_vertical_plan(node.items, extra_styles=(), gap=0)
+    background_fill = (
+        normalize_hex(node.background_color) if node.background_color else None
+    )
+
+    _apply_plan_spacers(plan, row_heights)
+    if background_fill:
+        engine.fill_background(
+            background_fill,
+            max(plan.max_row, DEFAULT_BACKGROUND_MIN_ROWS),
+            max(plan.max_col, DEFAULT_BACKGROUND_MIN_COLS),
+        )
+    _render_plan_cells(
+        engine,
+        plan,
+        col_widths,
+        row_heights,
+        background_fill,
+    )
+    _apply_dimensions(engine, col_widths)
+
+
+def _render_streaming_sheet(engine: Engine, node: SheetNode) -> None:
+    """Plan and release each top-level vertical component independently."""
+    col_widths: dict[int, float] = {}
+    background_fill = (
+        normalize_hex(node.background_color) if node.background_color else None
+    )
+    row_cursor = 1
+    max_row = 0
+    max_col = 0
+
+    for item in node.items:
+        if isinstance(item, SpacerNode):
+            row_cursor = max(row_cursor, max_row + 1)
+
+        plan = _build_item_plan(item)
+        row_offset = row_cursor - 1
+        row_heights: dict[int, float] = {}
+        _apply_plan_spacers(
+            plan,
+            row_heights,
+            row_offset=row_offset,
+        )
+        _render_plan_cells(
+            engine,
+            plan,
+            col_widths,
+            row_heights,
+            background_fill,
+            row_offset=row_offset,
+        )
+        max_row = max(max_row, row_offset + plan.max_row)
+        max_col = max(max_col, plan.max_col)
+
+        if isinstance(item, (CellNode, RowNode)):
+            row_cursor += 1
+        elif isinstance(item, SpacerNode):
+            row_cursor += item.rows
+        else:
+            child_height = _logical_height(item)
+            if any(spacer.direction == "vertical" for spacer in plan.spacers):
+                child_height = max(child_height, plan.max_row)
+            row_cursor += child_height
+
+    if background_fill:
+        engine.fill_background(
+            background_fill,
+            max(max_row, DEFAULT_BACKGROUND_MIN_ROWS),
+            max(max_col, DEFAULT_BACKGROUND_MIN_COLS),
+        )
+    _apply_dimensions(engine, col_widths)
 
 
 def render_sheet(engine: Engine, node: SheetNode | ImportedSheetNode) -> None:
@@ -822,77 +1009,7 @@ def render_sheet(engine: Engine, node: SheetNode | ImportedSheetNode) -> None:
 
     engine.create_sheet(node.name, show_gridlines=node.show_gridlines)
 
-    col_widths: dict[int, float] = {}
-    row_heights: dict[int, float] = {}
-    plan = _build_vertical_plan(node.items, extra_styles=(), gap=0)
-
-    max_row = plan.max_row
-    max_col = plan.max_col
-
-    for spacer in plan.spacers:
-        if spacer.direction == "horizontal":
-            continue
-        height = spacer.height if spacer.height is not None else _default_row_height()
-        for offset in range(spacer.rows):
-            row_index = spacer.row + offset
-            row_heights[row_index] = max(row_heights.get(row_index, 0.0), height)
-            engine.set_row_height(row_index, row_heights[row_index])
-
-    background_fill: str | None = None
-    if node.background_color:
-        background_fill = normalize_hex(node.background_color)
-        target_max_row = max(max_row, DEFAULT_BACKGROUND_MIN_ROWS)
-        target_max_col = max(max_col, DEFAULT_BACKGROUND_MIN_COLS)
-        engine.fill_background(background_fill, target_max_row, target_max_col)
-
-    for _, row_group in groupby(_iter_plan_cells(plan), key=lambda cell: cell.row):
-        resolved_row: list[tuple[_PlacedCell, EffectiveStyle]] = []
-        affected_rows: set[int] = set()
-        for placement in row_group:
-            effective = _resolve(placement.styles)
-            if background_fill is not None and effective.fill_color is None:
-                # Keep the sheet background visible on populated cells too.
-                # Use replace() because _resolve results are cached and shared.
-                effective = replace(effective, fill_color=background_fill)
-            _update_dimensions(
-                col_widths=col_widths,
-                row_heights=row_heights,
-                column_index=placement.col,
-                row_index=placement.row,
-                value=placement.value,
-                style=effective,
-                colspan=placement.colspan,
-                rowspan=placement.rowspan,
-                prefer_height=placement.prefer_height,
-            )
-            affected_rows.update(
-                range(placement.row, placement.row + placement.rowspan)
-            )
-            resolved_row.append((placement, effective))
-
-        # XlsxWriter's constant-memory mode requires row properties to be set
-        # before the row is flushed. Other engines also accept this ordering.
-        for row_index in affected_rows:
-            engine.set_row_height(row_index, row_heights[row_index])
-
-        for placement, effective in resolved_row:
-            if placement.colspan == 1 and placement.rowspan == 1:
-                engine.write_cell(
-                    placement.row,
-                    placement.col,
-                    placement.value,
-                    effective,
-                    DEFAULT_BORDER_COLOR,
-                )
-            else:
-                engine.write_merged_cell(
-                    placement.row,
-                    placement.col,
-                    placement.rowspan,
-                    placement.colspan,
-                    placement.value,
-                    effective,
-                    DEFAULT_BORDER_COLOR,
-                )
-
-    _apply_dimensions(engine, col_widths, row_heights)
+    if engine.streams_rows and not isinstance(node.items, tuple):
+        _render_streaming_sheet(engine, node)
+    else:
+        _render_materialized_sheet(engine, node)

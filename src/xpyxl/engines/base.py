@@ -80,6 +80,7 @@ class Engine(ABC):
 
     def __init__(self) -> None:
         """Initialize engine state without binding to an output target."""
+        self.streams_rows = False
 
     @abstractmethod
     def create_sheet(self, name: str, show_gridlines: bool = True) -> None:

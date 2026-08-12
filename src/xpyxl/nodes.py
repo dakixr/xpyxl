@@ -93,7 +93,7 @@ SheetItem = SheetComponent
 @dataclass(frozen=True)
 class SheetNode:
     name: str
-    items: tuple[SheetItem, ...]
+    items: Sequence[SheetItem]
     background_color: str | None = None
     show_gridlines: bool = True
 

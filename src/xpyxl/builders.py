@@ -168,6 +168,43 @@ class _RecordRows(Sequence[RowNode]):
             )
 
 
+class _SheetItems(Sequence[SheetItem]):
+    """Validate repeatable sheet components lazily as they are consumed."""
+
+    __slots__ = ("_items",)
+
+    def __init__(self, items: Sequence[object]) -> None:
+        self._items = items
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+    @overload
+    def __getitem__(self, index: int) -> SheetItem: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> Sequence[SheetItem]: ...
+
+    def __getitem__(self, index: int | slice) -> SheetItem | Sequence[SheetItem]:
+        if isinstance(index, slice):
+            return tuple(self[item] for item in range(*index.indices(len(self))))
+        return self._validate(self._items[index])
+
+    def __iter__(self) -> Iterator[SheetItem]:
+        for item in self._items:
+            yield self._validate(item)
+
+    @staticmethod
+    def _validate(item: object) -> SheetItem:
+        if isinstance(item, Node):
+            return item
+        msg = (
+            "Sheets accept rows, columns, tables, spacers, or layout stacks. "
+            "Call the builder before nesting."
+        )
+        raise TypeError(msg)
+
+
 def _streaming_record_rows(
     rows: object,
     *,
@@ -369,6 +406,13 @@ class SheetBuilder:
     def __getitem__(
         self, items: SheetComponent | Sequence[SheetComponent]
     ) -> SheetNode:
+        if isinstance(items, Sequence) and not isinstance(items, (Node, list, tuple)):
+            return SheetNode(
+                name=self._name,
+                items=_SheetItems(cast(Sequence[object], items)),
+                background_color=self._background_color,
+                show_gridlines=self._show_gridlines,
+            )
         entries: list[SheetItem] = []
         for item in _as_tuple(items):
             if isinstance(item, Node):

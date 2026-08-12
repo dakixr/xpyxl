@@ -33,6 +33,7 @@ class HybridEngine(Engine):
 
     def __init__(self, *, constant_memory: bool = True) -> None:
         super().__init__()
+        self.streams_rows = constant_memory
         self._xlsx_engine = XlsxWriterEngine(constant_memory=constant_memory)
         # Deferred import operations: (source, source_sheet_name, dest_name, show_gridlines)
         self._imports: list[
