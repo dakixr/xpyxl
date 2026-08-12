@@ -69,16 +69,21 @@ Path("report.xlsx").write_bytes(raw_bytes)
 The process-isolated benchmarks measure wall time and operating-system peak
 RSS. The first generates 2.4 million table cells across three styled sheets;
 the second generates 100,000 custom report components containing 5.4 million
-mixed cells across nested rows, columns, stacks, merges, formulas, and spacers:
+mixed cells across nested rows, columns, stacks, merges, formulas, and spacers.
+The third exercises every OpenPyXL-backed public workflow: generated saves,
+`to_openpyxl()`, imports, and mixed generated/imported saves through both the
+OpenPyXL and hybrid engines:
 
 ```bash
 uv run python scripts/benchmark_rss.py
 uv run python scripts/benchmark_components_rss.py
+uv run python scripts/benchmark_openpyxl.py
 ```
 
 Use `--rows-per-sheet`, `--sheets`, `--engine`, and `--runs` to change the
 table workload, or `--components` for the component workload; add `--json` for
-machine-readable results. For generated datasets, passing a custom re-iterable
+machine-readable results. The OpenPyXL matrix accepts `--rows`, `--import-rows`,
+`--scenario`, and `--runs`. For generated datasets, passing a custom re-iterable
 `Sequence` of records to `table()` or components to `sheet()` lets xpyxl create,
 render, and release content on demand. One-shot iterators cannot be streamed
 because validation and rendering require repeatable passes over the data; see

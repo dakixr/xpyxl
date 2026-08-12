@@ -5,14 +5,16 @@ from __future__ import annotations
 import copy
 from io import BytesIO
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, BinaryIO
+from typing import TYPE_CHECKING, Any, BinaryIO, cast
 
 from openpyxl import Workbook, load_workbook
-from openpyxl.cell.cell import MergedCell
+from openpyxl.cell.cell import Cell, MergedCell
+from openpyxl.formatting.rule import FormulaRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from ..styles import to_argb
+from ._openpyxl_compat import CompiledStyleCache, populated_cells, source_style_key
 from .base import EffectiveStyle, Engine, SaveTarget, normalize_cell_value
 
 if TYPE_CHECKING:
@@ -21,7 +23,7 @@ if TYPE_CHECKING:
 __all__ = ["OpenpyxlEngine"]
 
 
-def _set_cell_value(cell: Any, value: object) -> None:
+def _set_cell_value(cell: Cell, value: object) -> None:
     """Assign a cell value, normalizing for cross-engine consistency.
 
     Uses the same supported-type policy as the xlsxwriter engine so output
@@ -29,7 +31,7 @@ def _set_cell_value(cell: Any, value: object) -> None:
     """
     normalized = normalize_cell_value(value)
     try:
-        cell.value = normalized
+        cell.value = cast(Any, normalized)
     except ValueError:
         cell.value = str(normalized)
 
@@ -49,8 +51,11 @@ class OpenpyxlEngine(Engine):
     def _init_instance_vars(self) -> None:
         """Initialize common instance variables used by both __init__ and from_workbook."""
         self._current_sheet: Worksheet | None = None
-        # Cache style objects to avoid duplicates
-        self._style_cache: dict[tuple[Any, ...], dict[str, Any]] = {}
+        # Cache compiled OpenPyXL styles. Each cell receives a cheap copy of
+        # the StyleArray so advanced callers can still mutate cells independently.
+        self._style_cache: CompiledStyleCache[tuple[Any, ...]] = (
+            CompiledStyleCache()
+        )
         # Cache color conversions
         self._color_cache: dict[str, str] = {}
         # Cache column letters
@@ -88,7 +93,7 @@ class OpenpyxlEngine(Engine):
         if self._current_sheet is None:
             raise RuntimeError("No sheet created. Call create_sheet() first.")
 
-        cell = self._current_sheet.cell(row=row, column=col)
+        cell = cast(Cell, self._current_sheet.cell(row=row, column=col))
         _set_cell_value(cell, value)
         self._apply_style(cell, style, border_fallback_color)
 
@@ -109,7 +114,7 @@ class OpenpyxlEngine(Engine):
         if self._current_sheet is None:
             raise RuntimeError("No sheet created. Call create_sheet() first.")
 
-        cell = self._current_sheet.cell(row=row, column=col)
+        cell = cast(Cell, self._current_sheet.cell(row=row, column=col))
         _set_cell_value(cell, value)
         self._apply_style(cell, style, border_fallback_color)
         self._current_sheet.merge_cells(
@@ -125,12 +130,11 @@ class OpenpyxlEngine(Engine):
             self._color_cache[color] = to_argb(color)
         return self._color_cache[color]
 
-    def _get_cached_styles(
-        self, effective: EffectiveStyle, border_fallback_color: str
-    ) -> dict[str, Any]:
-        """Get or create cached style objects for the given style."""
-        # Create a hashable key from style properties
-        cache_key = (
+    @staticmethod
+    def _style_key(
+        effective: EffectiveStyle, border_fallback_color: str
+    ) -> tuple[Any, ...]:
+        return (
             effective.font_name,
             effective.font_size,
             effective.bold,
@@ -153,9 +157,9 @@ class OpenpyxlEngine(Engine):
             effective.border_right,
         )
 
-        if cache_key in self._style_cache:
-            return self._style_cache[cache_key]
-
+    def _build_style_objects(
+        self, effective: EffectiveStyle, border_fallback_color: str
+    ) -> tuple[Font, PatternFill | None, Alignment | None, Border | None]:
         # Create style objects
         text_color_argb = self._get_cached_color(effective.text_color)
         font = Font(
@@ -190,11 +194,6 @@ class OpenpyxlEngine(Engine):
         if align_kwargs:
             align_kwargs.setdefault("vertical", "bottom")
             alignment = Alignment(**align_kwargs)  # type: ignore[arg-type]
-        elif effective.wrap_text or effective.shrink_to_fit:
-            alignment = Alignment(
-                wrap_text=True if effective.wrap_text else None,
-                shrink_to_fit=True if effective.shrink_to_fit else None,
-            )
 
         border: Border | None = None
         if effective.border:
@@ -223,44 +222,36 @@ class OpenpyxlEngine(Engine):
                 side = build_side(True)
                 border = Border(left=side, right=side, top=side, bottom=side)
 
-        styles = {
-            "font": font,
-            "fill": fill,
-            "alignment": alignment,
-            "border": border,
-            "number_format": effective.number_format,
-        }
-
-        self._style_cache[cache_key] = styles
-        return styles
+        return font, fill, alignment, border
 
     def _apply_style(
-        self, cell: object, effective: EffectiveStyle, border_fallback_color: str
+        self, cell: Cell, effective: EffectiveStyle, border_fallback_color: str
     ) -> None:
-        """Apply style to an openpyxl cell."""
-        styles = self._get_cached_styles(effective, border_fallback_color)
+        """Apply a compiled style while preserving per-cell mutability."""
+        automatic_number_format = (
+            cell.number_format if effective.number_format is None else None
+        )
+        cache_key = (
+            *self._style_key(effective, border_fallback_color),
+            automatic_number_format,
+        )
+        if self._style_cache.apply(cell, cache_key):
+            return
 
-        cell.font = styles["font"]  # type: ignore[attr-defined]
+        font, fill, alignment, border = self._build_style_objects(
+            effective, border_fallback_color
+        )
+        cell.font = font
+        if fill:
+            cell.fill = fill
+        if alignment:
+            cell.alignment = alignment
+        if effective.number_format:
+            cell.number_format = effective.number_format
+        if border:
+            cell.border = border
 
-        if styles["fill"]:
-            cell.fill = styles["fill"]  # type: ignore[attr-defined]
-
-        if styles["alignment"]:
-            cell.alignment = styles["alignment"]  # type: ignore[attr-defined]
-        elif cell.alignment is None and (  # type: ignore[attr-defined]
-            effective.wrap_text or effective.shrink_to_fit
-        ):
-            # Handle edge case where alignment wasn't cached but wrap/shrink is needed
-            cell.alignment = Alignment(  # type: ignore[attr-defined]
-                wrap_text=True if effective.wrap_text else None,
-                shrink_to_fit=True if effective.shrink_to_fit else None,
-            )
-
-        if styles["number_format"]:
-            cell.number_format = styles["number_format"]  # type: ignore[attr-defined]
-
-        if styles["border"]:
-            cell.border = styles["border"]  # type: ignore[attr-defined]
+        self._style_cache.capture(cell, cache_key)
 
     def set_column_width(self, col: int, width: float) -> None:
         if self._current_sheet is None:
@@ -290,15 +281,14 @@ class OpenpyxlEngine(Engine):
         sheet_fill = PatternFill(
             fill_type="solid", start_color=fill_color, end_color=fill_color
         )
-        # Reuse the same PatternFill object for all cells (openpyxl supports this)
-        for row in self._current_sheet.iter_rows(
-            min_row=1, max_row=max_row, min_col=1, max_col=max_col
-        ):
-            for cell in row:
-                # Background fill may run after component-wise rendering, so
-                # preserve explicit cell fills that have already been applied.
-                if cell.fill.fill_type is None:
-                    cell.fill = sheet_fill
+        # Populated cells receive this background during rendering. Apply it
+        # to the remaining blanks with one differential rule so OpenPyXL does
+        # not materialize the entire background range as cell objects.
+        max_column = get_column_letter(max_col)
+        self._current_sheet.conditional_formatting.add(
+            f"A1:{max_column}{max_row}",
+            FormulaRule(formula=["ISBLANK(A1)"], fill=sheet_fill),
+        )
 
     def _ensure_named_styles(self, source_wb: Workbook) -> None:
         """Ensure named styles used by imported sheets exist in the destination workbook."""
@@ -366,28 +356,37 @@ class OpenpyxlEngine(Engine):
         except Exception:
             pass
 
-        # Values (including formulas) + cell-level style objects.
-        for row in source_ws.iter_rows():
-            for cell in row:
-                if isinstance(cell, MergedCell):
-                    continue
-                if cell.row is None or cell.column is None:
-                    continue
-                target_cell = target_ws.cell(
-                    row=cell.row, column=cell.column, value=cell.value
-                )
-                if getattr(cell, "has_style", False):
-                    # Copy resolved style objects, not style indices.
+        # Values (including formulas) + cell-level style objects. OpenPyXL
+        # style IDs are workbook-scoped, so compile each distinct source style
+        # once in the destination workbook and copy its compact StyleArray.
+        copied_styles: CompiledStyleCache[tuple[int, ...]] = CompiledStyleCache()
+        for cell in populated_cells(source_ws):
+            if isinstance(cell, MergedCell):
+                continue
+            if cell.row is None or cell.column is None:
+                continue
+            target_cell = target_ws.cell(
+                row=cell.row, column=cell.column, value=cell.value
+            )
+            if getattr(cell, "has_style", False):
+                style_key = source_style_key(cell)
+                if style_key is None or not copied_styles.apply(
+                    target_cell, style_key
+                ):
+                    # Resolve and register cross-workbook style objects on
+                    # the first cell that uses each distinct source style.
                     target_cell.font = copy.copy(cell.font)  # pyright: ignore[reportAttributeAccessIssue]
                     target_cell.fill = copy.copy(cell.fill)  # pyright: ignore[reportAttributeAccessIssue]
                     target_cell.border = copy.copy(cell.border)  # pyright: ignore[reportAttributeAccessIssue]
                     target_cell.alignment = copy.copy(cell.alignment)  # pyright: ignore[reportAttributeAccessIssue]
                     target_cell.number_format = cell.number_format
                     target_cell.protection = copy.copy(cell.protection)  # pyright: ignore[reportAttributeAccessIssue]
-                if getattr(cell, "hyperlink", None):
-                    target_cell._hyperlink = copy.copy(cell._hyperlink)  # type: ignore[attr-defined]
-                if cell.comment:
-                    target_cell.comment = copy.copy(cell.comment)
+                    if style_key is not None:
+                        copied_styles.capture(target_cell, style_key)
+            if getattr(cell, "hyperlink", None):
+                target_cell._hyperlink = copy.copy(cell._hyperlink)  # type: ignore[attr-defined]
+            if cell.comment:
+                target_cell.comment = copy.copy(cell.comment)
 
         # Merge ranges
         for merged_range in source_ws.merged_cells.ranges:
