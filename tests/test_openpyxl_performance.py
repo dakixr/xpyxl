@@ -3,12 +3,29 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import cast
 
 import openpyxl
+from openpyxl.cell.cell import Cell
 from openpyxl.styles import Font
 from openpyxl.styles.numbers import is_date_format
+from openpyxl.worksheet.worksheet import Worksheet
 
 import xpyxl as x
+from xpyxl.engines._openpyxl_compat import CompiledStyleCache, populated_cells
+
+
+def test_openpyxl_compatibility_helpers_fail_open() -> None:
+    cell = cast(Cell, object())
+    cache: CompiledStyleCache[str] = CompiledStyleCache()
+
+    class PublicOnlySheet:
+        def iter_rows(self) -> tuple[tuple[Cell, ...], ...]:
+            return ((cell,),)
+
+    assert cache.apply(cell, "style") is False
+    cache.capture(cell, "style")
+    assert list(populated_cells(cast(Worksheet, PublicOnlySheet()))) == [cell]
 
 
 def test_compiled_styles_remain_independently_mutable() -> None:

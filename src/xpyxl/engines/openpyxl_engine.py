@@ -53,7 +53,9 @@ class OpenpyxlEngine(Engine):
         self._current_sheet: Worksheet | None = None
         # Cache compiled OpenPyXL styles. Each cell receives a cheap copy of
         # the StyleArray so advanced callers can still mutate cells independently.
-        self._style_cache: CompiledStyleCache[tuple[Any, ...]] = (
+        self._style_cache: CompiledStyleCache[
+            tuple[EffectiveStyle, str | None, str | None]
+        ] = (
             CompiledStyleCache()
         )
         # Cache color conversions
@@ -130,33 +132,6 @@ class OpenpyxlEngine(Engine):
             self._color_cache[color] = to_argb(color)
         return self._color_cache[color]
 
-    @staticmethod
-    def _style_key(
-        effective: EffectiveStyle, border_fallback_color: str
-    ) -> tuple[Any, ...]:
-        return (
-            effective.font_name,
-            effective.font_size,
-            effective.bold,
-            effective.italic,
-            effective.text_color,
-            effective.fill_color,
-            effective.horizontal_align,
-            effective.vertical_align,
-            effective.indent,
-            effective.wrap_text,
-            effective.shrink_to_fit,
-            effective.number_format,
-            effective.border,
-            effective.border_color or border_fallback_color
-            if effective.border
-            else None,
-            effective.border_top,
-            effective.border_bottom,
-            effective.border_left,
-            effective.border_right,
-        )
-
     def _build_style_objects(
         self, effective: EffectiveStyle, border_fallback_color: str
     ) -> tuple[Font, PatternFill | None, Alignment | None, Border | None]:
@@ -231,8 +206,14 @@ class OpenpyxlEngine(Engine):
         automatic_number_format = (
             cell.number_format if effective.number_format is None else None
         )
+        fallback_border_color = (
+            border_fallback_color
+            if effective.border and effective.border_color is None
+            else None
+        )
         cache_key = (
-            *self._style_key(effective, border_fallback_color),
+            effective,
+            fallback_border_color,
             automatic_number_format,
         )
         if self._style_cache.apply(cell, cache_key):
