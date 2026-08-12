@@ -31,9 +31,9 @@ class HybridEngine(Engine):
     - Ability to import sheets from existing workbooks (openpyxl)
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, constant_memory: bool = True) -> None:
         super().__init__()
-        self._xlsx_engine = XlsxWriterEngine()
+        self._xlsx_engine = XlsxWriterEngine(constant_memory=constant_memory)
         # Deferred import operations: (source, source_sheet_name, dest_name, show_gridlines)
         self._imports: list[
             tuple[SaveTarget | bytes | BinaryIO, str, str, bool | None]

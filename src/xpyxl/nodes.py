@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO, TypeAlias
@@ -47,7 +48,7 @@ class ColumnNode:
 
 @dataclass(frozen=True)
 class TableNode:
-    rows: tuple[RowNode, ...]
+    rows: Sequence[RowNode]
     styles: tuple[Style, ...] = ()
     header: RowNode | None = None
 

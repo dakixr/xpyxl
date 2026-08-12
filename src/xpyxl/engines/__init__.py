@@ -23,7 +23,7 @@ __all__ = [
 EngineName = Literal["openpyxl", "xlsxwriter", "hybrid", "html"]
 
 
-def get_engine(name: EngineName) -> Engine:
+def get_engine(name: EngineName, *, constant_memory: bool = True) -> Engine:
     """Create an engine instance for the given name.
 
     Available engines:
@@ -38,9 +38,9 @@ def get_engine(name: EngineName) -> Engine:
     if name == "openpyxl":
         return OpenpyxlEngine()
     elif name == "xlsxwriter":
-        return XlsxWriterEngine()
+        return XlsxWriterEngine(constant_memory=constant_memory)
     elif name == "hybrid":
-        return HybridEngine()
+        return HybridEngine(constant_memory=constant_memory)
     elif name == "html":
         return HtmlEngine()
     else:

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from functools import lru_cache
+from heapq import merge as merge_sorted
+from itertools import groupby
 from typing import Literal, assert_never
 
 from .engines.base import EffectiveStyle, Engine
@@ -70,17 +72,47 @@ class _PlacedSpacer:
     direction: _Axis
 
 
+@dataclass(frozen=True)
+class _PlacedTable:
+    row: int
+    col: int
+    node: TableNode
+    extra_styles: tuple[Style, ...]
+    height: int
+    width: int
+
+
 class _GridPlan:
-    __slots__ = ("cells", "spacers", "_occupied", "max_row", "max_col")
+    __slots__ = (
+        "cells",
+        "tables",
+        "spacers",
+        "_occupied",
+        "_occupied_rectangles",
+        "max_row",
+        "max_col",
+    )
 
     def __init__(self) -> None:
         self.cells: list[_PlacedCell] = []
+        self.tables: list[_PlacedTable] = []
         self.spacers: list[_PlacedSpacer] = []
         self._occupied: set[tuple[int, int]] = set()
+        self._occupied_rectangles: list[tuple[int, int, int, int]] = []
         self.max_row = 0
         self.max_col = 0
 
     def is_clear(self, row: int, col: int, rowspan: int, colspan: int) -> bool:
+        bottom = row + rowspan - 1
+        right = col + colspan - 1
+        for top, left, rect_bottom, rect_right in self._occupied_rectangles:
+            if not (
+                bottom < top
+                or row > rect_bottom
+                or right < left
+                or col > rect_right
+            ):
+                return False
         for row_idx in range(row, row + rowspan):
             for col_idx in range(col, col + colspan):
                 if (row_idx, col_idx) in self._occupied:
@@ -119,6 +151,50 @@ class _GridPlan:
         self.max_row = max(self.max_row, row + rowspan - 1)
         self.max_col = max(self.max_col, col + colspan - 1)
 
+    def add_table(
+        self,
+        row: int,
+        col: int,
+        node: TableNode,
+        extra_styles: tuple[Style, ...],
+        *,
+        height: int,
+        width: int,
+    ) -> None:
+        if height < 1 or width < 1:
+            return
+        bottom = row + height - 1
+        right = col + width - 1
+        overlaps_cell = any(
+            row <= occupied_row <= bottom and col <= occupied_col <= right
+            for occupied_row, occupied_col in self._occupied
+        )
+        overlaps_rectangle = any(
+            not (
+                bottom < top
+                or row > rect_bottom
+                or right < left
+                or col > rect_right
+            )
+            for top, left, rect_bottom, rect_right in self._occupied_rectangles
+        )
+        if overlaps_cell or overlaps_rectangle:
+            msg = "Merged cells cannot overlap existing content"
+            raise ValueError(msg)
+        self.tables.append(
+            _PlacedTable(
+                row=row,
+                col=col,
+                node=node,
+                extra_styles=extra_styles,
+                height=height,
+                width=width,
+            )
+        )
+        self._occupied_rectangles.append((row, col, bottom, right))
+        self.max_row = max(self.max_row, bottom)
+        self.max_col = max(self.max_col, right)
+
     def add_spacer(
         self,
         row: int,
@@ -154,6 +230,15 @@ class _GridPlan:
                 colspan=placement.colspan,
                 rowspan=placement.rowspan,
                 prefer_height=placement.prefer_height,
+            )
+        for table in other.tables:
+            self.add_table(
+                row + table.row - 1,
+                col + table.col - 1,
+                table.node,
+                table.extra_styles,
+                height=table.height,
+                width=table.width,
             )
         for spacer in other.spacers:
             self.add_spacer(
@@ -399,101 +484,32 @@ def _place_single_cell(
     )
 
 
-def _table_has_merged_cells(node: TableNode) -> bool:
-    if node.header and any(
-        cell.colspan > 1 or cell.rowspan > 1 for cell in node.header.cells
-    ):
-        return True
-    return any(
-        cell.colspan > 1 or cell.rowspan > 1 for row in node.rows for cell in row.cells
-    )
+def _table_dimensions(node: TableNode) -> tuple[int, int]:
+    width = 0
+    if node.header:
+        if any(cell.colspan > 1 or cell.rowspan > 1 for cell in node.header.cells):
+            msg = "Merged cells are not supported inside tables"
+            raise ValueError(msg)
+        width = len(node.header.cells)
+    for row in node.rows:
+        if any(cell.colspan > 1 or cell.rowspan > 1 for cell in row.cells):
+            msg = "Merged cells are not supported inside tables"
+            raise ValueError(msg)
+        width = max(width, len(row.cells))
+    return len(node.rows) + (1 if node.header else 0), width
 
 
 def _build_table_plan(node: TableNode, extra_styles: tuple[Style, ...]) -> _GridPlan:
-    if _table_has_merged_cells(node):
-        msg = "Merged cells are not supported inside tables"
-        raise ValueError(msg)
-
     plan = _GridPlan()
-    table_style = combine_styles((*extra_styles, *node.styles))
-    banded = table_style.table_banded if table_style.table_banded is not None else False
-    bordered = (
-        table_style.table_bordered if table_style.table_bordered is not None else True
+    height, width = _table_dimensions(node)
+    plan.add_table(
+        1,
+        1,
+        node,
+        extra_styles,
+        height=height,
+        width=width,
     )
-    compact = (
-        table_style.table_compact if table_style.table_compact is not None else False
-    )
-    border_color = (
-        table_style.border_color
-        if table_style.border_color is not None
-        else DEFAULT_BORDER_COLOR
-    )
-    border_style = (
-        table_style.border if table_style.border is not None else DEFAULT_BORDER_STYLE
-    )
-
-    table_border_style = (
-        Style(border=border_style, border_color=border_color) if bordered else None
-    )
-    stripe_style = Style(fill_color=DEFAULT_TABLE_STRIPE_COLOR) if banded else None
-    compact_height = DEFAULT_TABLE_COMPACT_HEIGHT if compact else None
-
-    current_row = 1
-
-    def add_row(
-        row_node: RowNode,
-        *,
-        extras: Sequence[Style] = (),
-        prefer_height: float | None = None,
-        extras_first: bool = False,
-    ) -> None:
-        for column_offset, cell_node in enumerate(row_node.cells, start=1):
-            base_chain = (*extra_styles, *node.styles)
-            if extras_first:
-                style_chain = (
-                    *base_chain,
-                    *extras,
-                    *row_node.styles,
-                    *cell_node.styles,
-                )
-            else:
-                style_chain = (
-                    *base_chain,
-                    *row_node.styles,
-                    *extras,
-                    *cell_node.styles,
-                )
-            if table_border_style:
-                style_chain = (*style_chain, table_border_style)
-            plan.add_cell(
-                current_row,
-                column_offset,
-                cell_node.value,
-                style_chain,
-                prefer_height=prefer_height,
-            )
-
-    if node.header:
-        header_extras: list[Style] = [bold, text_center, align_middle]
-        if DEFAULT_TABLE_HEADER_BG:
-            header_extras.append(Style(fill_color=DEFAULT_TABLE_HEADER_BG))
-        if DEFAULT_TABLE_HEADER_TEXT:
-            header_extras.append(Style(text_color=DEFAULT_TABLE_HEADER_TEXT))
-        add_row(
-            node.header,
-            extras=header_extras,
-            prefer_height=compact_height,
-            extras_first=True,
-        )
-        current_row += 1
-
-    for idx, row_node in enumerate(node.rows):
-        extras: list[Style] = []
-        if stripe_style and idx % 2 == 1:
-            extras.append(stripe_style)
-        add_row(row_node, extras=extras, prefer_height=compact_height)
-        current_row += 1
-
     return plan
 
 
@@ -522,7 +538,7 @@ def _build_horizontal_plan(
         else:
             child_plan = _build_item_plan(child, extra_styles=extra_styles)
             plan.merge(child_plan, row=1, col=col_cursor)
-            child_width = max(_logical_width(child), child_plan.max_col)
+            child_width = child_plan.max_col or _logical_width(child)
             col_cursor += child_width
         if idx < len(items) - 1 and gap:
             plan.add_spacer(
@@ -702,6 +718,88 @@ def _build_item_plan(
     assert_never(item)
 
 
+def _iter_table_cells(table: _PlacedTable) -> Iterator[_PlacedCell]:
+    node = table.node
+    table_style = combine_styles((*table.extra_styles, *node.styles))
+    banded = table_style.table_banded if table_style.table_banded is not None else False
+    bordered = (
+        table_style.table_bordered if table_style.table_bordered is not None else True
+    )
+    compact = (
+        table_style.table_compact if table_style.table_compact is not None else False
+    )
+    border_color = table_style.border_color or DEFAULT_BORDER_COLOR
+    border_style = table_style.border or DEFAULT_BORDER_STYLE
+    table_border_style = (
+        Style(border=border_style, border_color=border_color) if bordered else None
+    )
+    stripe_style = Style(fill_color=DEFAULT_TABLE_STRIPE_COLOR) if banded else None
+    compact_height = DEFAULT_TABLE_COMPACT_HEIGHT if compact else None
+    base_chain = (*table.extra_styles, *node.styles)
+    row_offset = 0
+
+    def iter_row(
+        row_node: RowNode,
+        *,
+        extras: Sequence[Style] = (),
+        extras_first: bool = False,
+    ) -> Iterator[_PlacedCell]:
+        for column_offset, cell_node in enumerate(row_node.cells):
+            if cell_node.colspan > 1 or cell_node.rowspan > 1:
+                msg = "Merged cells are not supported inside tables"
+                raise ValueError(msg)
+            if extras_first:
+                styles = (
+                    *base_chain,
+                    *extras,
+                    *row_node.styles,
+                    *cell_node.styles,
+                )
+            else:
+                styles = (
+                    *base_chain,
+                    *row_node.styles,
+                    *extras,
+                    *cell_node.styles,
+                )
+            if table_border_style:
+                styles = (*styles, table_border_style)
+            yield _PlacedCell(
+                row=table.row + row_offset,
+                col=table.col + column_offset,
+                value=cell_node.value,
+                styles=styles,
+                colspan=1,
+                rowspan=1,
+                prefer_height=compact_height,
+            )
+
+    if node.header:
+        header_extras: list[Style] = [bold, text_center, align_middle]
+        if DEFAULT_TABLE_HEADER_BG:
+            header_extras.append(Style(fill_color=DEFAULT_TABLE_HEADER_BG))
+        if DEFAULT_TABLE_HEADER_TEXT:
+            header_extras.append(Style(text_color=DEFAULT_TABLE_HEADER_TEXT))
+        yield from iter_row(node.header, extras=header_extras, extras_first=True)
+        row_offset += 1
+
+    for index, row_node in enumerate(node.rows):
+        extras = (stripe_style,) if stripe_style and index % 2 == 1 else ()
+        yield from iter_row(row_node, extras=extras)
+        row_offset += 1
+
+
+def _iter_plan_cells(plan: _GridPlan) -> Iterator[_PlacedCell]:
+    iterators: list[Iterator[_PlacedCell]] = [
+        iter(sorted(plan.cells, key=lambda cell: (cell.row, cell.col)))
+    ]
+    iterators.extend(_iter_table_cells(table) for table in plan.tables)
+    yield from merge_sorted(
+        *iterators,
+        key=lambda cell: (cell.row, cell.col),
+    )
+
+
 def _apply_dimensions(
     engine: Engine,
     col_widths: Mapping[int, float],
@@ -709,8 +807,6 @@ def _apply_dimensions(
 ) -> None:
     for column_index, width in col_widths.items():
         engine.set_column_width(column_index, width)
-    for row_index, height in row_heights.items():
-        engine.set_row_height(row_index, height)
 
 
 def render_sheet(engine: Engine, node: SheetNode | ImportedSheetNode) -> None:
@@ -733,51 +829,6 @@ def render_sheet(engine: Engine, node: SheetNode | ImportedSheetNode) -> None:
     max_row = plan.max_row
     max_col = plan.max_col
 
-    background_fill: str | None = None
-    if node.background_color:
-        background_fill = normalize_hex(node.background_color)
-        target_max_row = max(max_row, DEFAULT_BACKGROUND_MIN_ROWS)
-        target_max_col = max(max_col, DEFAULT_BACKGROUND_MIN_COLS)
-        engine.fill_background(background_fill, target_max_row, target_max_col)
-
-    for placement in sorted(plan.cells, key=lambda cell: (cell.row, cell.col)):
-        effective = _resolve(placement.styles)
-        if background_fill is not None and effective.fill_color is None:
-            # Keep the sheet background visible on populated cells too.
-            # xlsxwriter cell formats fully replace the blank background
-            # formats written by fill_background. Use replace() because
-            # _resolve results are cached and shared.
-            effective = replace(effective, fill_color=background_fill)
-        if placement.colspan == 1 and placement.rowspan == 1:
-            engine.write_cell(
-                placement.row,
-                placement.col,
-                placement.value,
-                effective,
-                DEFAULT_BORDER_COLOR,
-            )
-        else:
-            engine.write_merged_cell(
-                placement.row,
-                placement.col,
-                placement.rowspan,
-                placement.colspan,
-                placement.value,
-                effective,
-                DEFAULT_BORDER_COLOR,
-            )
-        _update_dimensions(
-            col_widths=col_widths,
-            row_heights=row_heights,
-            column_index=placement.col,
-            row_index=placement.row,
-            value=placement.value,
-            style=effective,
-            colspan=placement.colspan,
-            rowspan=placement.rowspan,
-            prefer_height=placement.prefer_height,
-        )
-
     for spacer in plan.spacers:
         if spacer.direction == "horizontal":
             continue
@@ -785,5 +836,63 @@ def render_sheet(engine: Engine, node: SheetNode | ImportedSheetNode) -> None:
         for offset in range(spacer.rows):
             row_index = spacer.row + offset
             row_heights[row_index] = max(row_heights.get(row_index, 0.0), height)
+            engine.set_row_height(row_index, row_heights[row_index])
+
+    background_fill: str | None = None
+    if node.background_color:
+        background_fill = normalize_hex(node.background_color)
+        target_max_row = max(max_row, DEFAULT_BACKGROUND_MIN_ROWS)
+        target_max_col = max(max_col, DEFAULT_BACKGROUND_MIN_COLS)
+        engine.fill_background(background_fill, target_max_row, target_max_col)
+
+    for _, row_group in groupby(_iter_plan_cells(plan), key=lambda cell: cell.row):
+        resolved_row: list[tuple[_PlacedCell, EffectiveStyle]] = []
+        affected_rows: set[int] = set()
+        for placement in row_group:
+            effective = _resolve(placement.styles)
+            if background_fill is not None and effective.fill_color is None:
+                # Keep the sheet background visible on populated cells too.
+                # Use replace() because _resolve results are cached and shared.
+                effective = replace(effective, fill_color=background_fill)
+            _update_dimensions(
+                col_widths=col_widths,
+                row_heights=row_heights,
+                column_index=placement.col,
+                row_index=placement.row,
+                value=placement.value,
+                style=effective,
+                colspan=placement.colspan,
+                rowspan=placement.rowspan,
+                prefer_height=placement.prefer_height,
+            )
+            affected_rows.update(
+                range(placement.row, placement.row + placement.rowspan)
+            )
+            resolved_row.append((placement, effective))
+
+        # XlsxWriter's constant-memory mode requires row properties to be set
+        # before the row is flushed. Other engines also accept this ordering.
+        for row_index in affected_rows:
+            engine.set_row_height(row_index, row_heights[row_index])
+
+        for placement, effective in resolved_row:
+            if placement.colspan == 1 and placement.rowspan == 1:
+                engine.write_cell(
+                    placement.row,
+                    placement.col,
+                    placement.value,
+                    effective,
+                    DEFAULT_BORDER_COLOR,
+                )
+            else:
+                engine.write_merged_cell(
+                    placement.row,
+                    placement.col,
+                    placement.rowspan,
+                    placement.colspan,
+                    placement.value,
+                    effective,
+                    DEFAULT_BORDER_COLOR,
+                )
 
     _apply_dimensions(engine, col_widths, row_heights)

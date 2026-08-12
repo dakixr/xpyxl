@@ -64,6 +64,22 @@ raw_bytes = workbook.save(engine="openpyxl")
 Path("report.xlsx").write_bytes(raw_bytes)
 ```
 
+### Large-workbook benchmark
+
+The process-isolated benchmark measures wall time and operating-system peak
+RSS while generating 2.4 million data cells across three styled sheets:
+
+```bash
+uv run python scripts/benchmark_rss.py
+```
+
+Use `--rows-per-sheet`, `--sheets`, `--engine`, and `--runs` to change the
+workload; add `--json` for machine-readable results. For generated datasets,
+passing a custom re-iterable `Sequence` of records lets `table()` create rows
+on demand. One-shot iterators cannot be streamed because layout and rendering
+require repeatable passes over the data; see `GeneratedRecords` in the
+benchmark for a complete example.
+
 ## PDF and image export
 
 Export the same report directly to PDF or PNG with a locally installed

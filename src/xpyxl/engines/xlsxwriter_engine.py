@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
-from io import BytesIO
 from pathlib import Path
+import shutil
+import tempfile
 from typing import TYPE_CHECKING, Any, BinaryIO
 
 import xlsxwriter
@@ -48,12 +49,23 @@ def _normalize_value(value: object) -> object:
 class XlsxWriterEngine(Engine):
     """Rendering engine using xlsxwriter."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, constant_memory: bool = True) -> None:
         super().__init__()
-        self._buffer = BytesIO()
-        # Convert NaN/INF to Excel errors to avoid xlsxwriter write_number() failures
-        workbook_options = {"in_memory": True, "nan_inf_to_errors": True}
-        self._workbook = xlsxwriter.Workbook(self._buffer, workbook_options)
+        temporary = tempfile.NamedTemporaryFile(
+            prefix="xpyxl-", suffix=".xlsx", delete=False
+        )
+        temporary.close()
+        self._temporary_path = Path(temporary.name)
+        # Constant-memory mode flushes each completed worksheet row instead of
+        # retaining every cell and the final ZIP archive in process memory.
+        workbook_options = {
+            "constant_memory": constant_memory,
+            "nan_inf_to_errors": True,
+        }
+        self._workbook = xlsxwriter.Workbook(
+            self._temporary_path,
+            workbook_options,
+        )
         self._current_sheet: Worksheet | None = None
         # Cache format objects to avoid duplicates
         self._format_cache: dict[tuple[Any, ...], Format] = {}
@@ -228,9 +240,9 @@ class XlsxWriterEngine(Engine):
 
         fmt = self._get_format(style, border_fallback_color)
         value = _normalize_value(value)
-        # merge_range auto-detects "=" as a formula; set up the merge with a
-        # blank, then write the anchor with the same type dispatch as
-        # write_cell so the bare-"=" guard and all type logic apply uniformly.
+        # Same-row merges can use the normal type dispatch after establishing
+        # the range. Multi-row merges require random-access mode because they
+        # touch future rows; Workbook selects that mode before rendering.
         self._current_sheet.merge_range(
             row - 1,
             col - 1,
@@ -270,10 +282,16 @@ class XlsxWriterEngine(Engine):
         fill_color = normalize_hex(color)
         bg_fmt = self._workbook.add_format({"bg_color": fill_color})
 
-        # Fill all cells in the range (0-based indexing)
-        for row_idx in range(max_row):
-            for col_idx in range(max_col):
-                self._current_sheet.write_blank(row_idx, col_idx, None, bg_fmt)
+        # A blank-cell conditional format preserves the bounded background
+        # range without writing thousands of blank cells ahead of row-major
+        # content (which constant-memory mode intentionally disallows).
+        self._current_sheet.conditional_format(
+            0,
+            0,
+            max_row - 1,
+            max_col - 1,
+            {"type": "blanks", "format": bg_fmt},
+        )
 
     def copy_sheet(
         self,
@@ -293,13 +311,18 @@ class XlsxWriterEngine(Engine):
             self._workbook.close()
             self._closed = True
 
-        data = self._buffer.getvalue()
         if target is None:
-            return data
+            return self._temporary_path.read_bytes()
 
         if isinstance(target, (str, Path)):
-            Path(target).write_bytes(data)
+            shutil.copyfile(self._temporary_path, target)
         else:
-            target.write(data)
-            target.flush()
+            with self._temporary_path.open("rb") as source:
+                shutil.copyfileobj(source, target)
+                target.flush()
         return None
+
+    def __del__(self) -> None:
+        temporary_path = getattr(self, "_temporary_path", None)
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)

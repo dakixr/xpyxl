@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
-from typing import BinaryIO, TypeAlias, cast
+from typing import BinaryIO, TypeAlias, cast, overload
 
 from ._workbook import Workbook
 from .nodes import (
@@ -127,6 +127,72 @@ def _rows_from_records(
         for record in records
     )
     return body_rows, header_node
+
+
+class _RecordRows(Sequence[RowNode]):
+    """Create row nodes on demand from a re-iterable record sequence."""
+
+    __slots__ = ("_columns", "_records")
+
+    def __init__(
+        self,
+        records: Sequence[Mapping[ColumnKey, CellSource]],
+        columns: Sequence[ColumnKey],
+    ) -> None:
+        self._records = records
+        self._columns = tuple(columns)
+
+    def __len__(self) -> int:
+        return len(self._records)
+
+    @overload
+    def __getitem__(self, index: int) -> RowNode: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> Sequence[RowNode]: ...
+
+    def __getitem__(self, index: int | slice) -> RowNode | Sequence[RowNode]:
+        if isinstance(index, slice):
+            return tuple(self[idx] for idx in range(*index.indices(len(self))))
+        record = self._records[index]
+        return RowNode(
+            cells=tuple(_ensure_cell(record.get(column)) for column in self._columns)
+        )
+
+    def __iter__(self) -> Iterator[RowNode]:
+        for record in self._records:
+            yield RowNode(
+                cells=tuple(
+                    _ensure_cell(record.get(column)) for column in self._columns
+                )
+            )
+
+
+def _streaming_record_rows(
+    rows: object,
+    *,
+    header_styles: Sequence[Style],
+    column_order: Sequence[ColumnKey] | None,
+) -> tuple[Sequence[RowNode], RowNode | None] | None:
+    """Keep non-container record sequences lazy instead of duplicating every cell."""
+    if not isinstance(rows, Sequence) or isinstance(rows, (list, tuple, str, bytes)):
+        return None
+    if not rows:
+        return (), None
+
+    columns: list[ColumnKey] = list(column_order or ())
+    seen = set(columns)
+    for record in rows:
+        if not isinstance(record, Mapping):
+            return None
+        for key in record:
+            if key not in seen:
+                seen.add(key)
+                columns.append(key)
+
+    typed_rows = cast(Sequence[Mapping[ColumnKey, CellSource]], rows)
+    header = _coerce_row(columns, extra_styles=header_styles) if columns else None
+    return _RecordRows(typed_rows, columns), header
 
 
 def _rows_from_dict_of_lists(
@@ -257,6 +323,18 @@ class TableBuilder(_BuilderBase):
                 column_order=column_order,
             )
         else:
+            streaming_rows = _streaming_record_rows(
+                rows,
+                header_styles=self._header_styles,
+                column_order=column_order,
+            )
+            if streaming_rows is not None:
+                row_nodes, derived_header = streaming_rows
+                return TableNode(
+                    rows=row_nodes,
+                    styles=self._styles,
+                    header=derived_header,
+                )
             tupled_rows = _as_tuple(rows)
             if tupled_rows and all(isinstance(item, Mapping) for item in tupled_rows):
                 typed_records = cast(
